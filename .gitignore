@@ -1,0 +1,6 @@
+tools/.venv/
+__pycache__/
+dist/
+
+# Local working notes (inventory of other addons, includes personal setup details)
+docs/

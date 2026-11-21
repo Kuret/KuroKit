@@ -15,6 +15,7 @@ A personal all-in-one WoW addon. It replaces many feature-rich addons by reimple
 ## Layout
 - `KuroKit/`: the addon itself. Junction-linked into `Interface\AddOns\KuroKit` by `tools\link.ps1`.
 - `KuroKit/Core/`: framework (events, settings, modules, slash commands). Keep it small.
+  - `Core/HoverReveal.lua`: reusable "hidden until hovered, slides in from the screen edge" engine, used by MenuTray and StatusBars. Reuse it for any other auto-hide (chat chrome, minimap icons). It never touches a Blizzard frame whose alpha Blizzard manages; animate its contents instead (see StatusBars).
 - `KuroKit/Modules/<Name>.lua`: one file per feature group, each made with `ns:NewModule`. Every module can be toggled per account or per character with `/kk on|off <Module> [char]`.
 - `docs/`: feature inventory and design notes.
 
@@ -27,7 +28,11 @@ A personal all-in-one WoW addon. It replaces many feature-rich addons by reimple
 - Turning a module off takes effect after `/reload`. Modules don't need to undo their hooks.
 - After every change, run `tools\.venv\Scripts\python.exe -I tools\check.py`. It checks Lua 5.1 syntax and TOC/file consistency, and scans the bytecode for accidental global writes and suspicious global reads (out-of-scope locals). New intentional globals go in its `ALLOWED_WRITES` / `ALLOWED_READS`.
 - KuroKit errors print in chat once (`ns.OnError`), because the user normally has Lua error popups off. Wrap anything that runs outside `ns:On` handlers (OnUpdate scripts, button clicks) in `ns.safecall`. A new file must also be added to the `.toc`. On this client `/reload` picks up edits *and* new files listed in the TOC (verified 2026-11-21). Some TOC header fields (e.g. AddonCompartmentFunc) may still need a full restart.
+- Module settings store only values the user changed; `M.db` falls back to `defaults` through a metatable. Changing a default in code takes effect for everyone who never touched it. Saved-format upgrades live in `Core.lua` (`DB_VERSION`, `UpgradeModuleSettings`). If a default changes and the old value was ever written into saved settings, add it to `OLD_DEFAULTS` with a version bump.
 - Settings are **account-wide only** (one `KuroKitDB`, no per-character profiles), per the user.
+- **Minimal and opinionated:** hardcode the look and behaviour the user picked; add an option only for locale/regional differences (e.g. timestamp format) or a real situational need (e.g. not repairing right now, keeping a grey item). No sliders for taste, no per-detail checkboxes; a feature's on/off checkbox covers "don't want it".
+  - When an option is removed, its `OnLoad` clears the stored key (`self.db.key = nil`).
+  - A default for a game setting (CVar) is applied once, the first time (a `...Seeded` flag in `M.db`); after that the game's own value is the user's choice.
 - Every user-facing setting goes in the module's `options` list (`Core/Options.lua`). Don't add slash-command-only settings; slash commands are for diagnostics.
   - The settings page is one canvas page with **tabs by group** (General, Interface, Chat & Map, Gameplay, Developer). Each module sets `group`; empty groups are hidden. Each module shows as a section with an on/off checkbox in front of its title; `alwaysOn = true` hides that checkbox.
   - Options that need a reload get `reload = true`; the page then shows a reload bar.

@@ -19,13 +19,14 @@ local M = ns:NewModule("AudioDevice", {
     title = "Follow Default Audio Device",
     group = "General",
     desc = "Game sound switches to Windows' default output device when it changes (headset on/off, etc.), "
-        .. "instead of staying on the device the game started with. Sets the game's output device to System Default.",
-    defaults = { announce = true },
-    options = {
-        { type = "checkbox", key = "announce", name = "Message in chat when switching",
-          tooltip = "Print a short line in chat each time game sound moves to the new default device." },
-    },
+        .. "instead of staying on the device the game started with. Sets the game's output device to System Default. "
+        .. "A short line in chat confirms each switch.",
 })
+
+-- "announce" used to be an option; now always on. Drop its stored value.
+function M:OnLoad()
+    self.db.announce = nil
+end
 
 local pendingRestart = false
 local scheduled = false
@@ -44,7 +45,7 @@ local function RestartSound(announce)
     SetCVar("Sound_OutputDriverIndex", "0")
     if Sound_GameSystem_RestartSoundSystem then
         Sound_GameSystem_RestartSoundSystem()
-        if announce and M.db.announce then
+        if announce then
             ns:Print("game sound switched to the default output device.")
         end
     elseif not warnedMissing then

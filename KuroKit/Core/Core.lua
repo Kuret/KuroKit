@@ -109,6 +109,37 @@ local function applyDefaults(target, defaults)
 end
 ns.applyDefaults = applyDefaults
 
+-- Module settings only store what the user changed; everything else is looked
+-- up in the module's defaults (metatable), so changing a default in code
+-- reaches every user who never touched that setting. Table defaults are copied
+-- (a shared table would get written into).
+local function BindDefaults(saved, defaults)
+    for k, v in pairs(defaults) do
+        if type(v) == "table" then
+            saved[k] = applyDefaults(type(saved[k]) == "table" and saved[k] or {}, v)
+        end
+    end
+    return setmetatable(saved, { __index = defaults })
+end
+
+-- Saved-settings format version. Upgrades run once:
+--  2: defaults used to be copied into the saved settings. Drop stored values
+--     that equal a default, plus defaults that have since changed (listed
+--     here as key = old default), so those follow the code's defaults again.
+local DB_VERSION = 2
+local OLD_DEFAULTS = { hideDelay = 0.5 }
+
+local function UpgradeModuleSettings(saved, defaults, fromVersion)
+    if fromVersion < 2 then
+        for k, v in pairs(defaults) do
+            local stored = rawget(saved, k)
+            if type(v) ~= "table" and (stored == v or (OLD_DEFAULTS[k] ~= nil and stored == OLD_DEFAULTS[k])) then
+                saved[k] = nil
+            end
+        end
+    end
+end
+
 ---------------------------------------------------------------------------
 -- Modules
 --   local M = ns:NewModule("Name", {
@@ -123,7 +154,9 @@ ns.applyDefaults = applyDefaults
 --   function M:OnEnable() ... end                  -- runs at PLAYER_LOGIN if enabled
 --   function M:OnOptionChanged(key, value) ... end -- optional: apply a setting live
 --   function M:OnSlash(args) ... end               -- optional: /kk name <args>
--- Settings live in M.db. Turning a module off takes effect after /reload
+-- Settings live in M.db: only values the user changed are stored; reads fall
+-- back to `defaults`, so changing a default here reaches everyone who never
+-- touched that setting. Turning a module off takes effect after /reload
 -- (hooks into Blizzard's UI can't be undone).
 ---------------------------------------------------------------------------
 function ns:NewModule(name, opts)
@@ -165,12 +198,16 @@ end
 ns:On("ADDON_LOADED", function(_, loaded)
     if loaded ~= ADDON then return end
     KuroKitDB = applyDefaults(KuroKitDB or {}, { enabled = {}, modules = {} })
+    local fromVersion = KuroKitDB.version or 1
     for _, name in ipairs(ns.moduleOrder) do
         local m = ns.modules[name]
-        KuroKitDB.modules[name] = applyDefaults(KuroKitDB.modules[name] or {}, m.defaults)
+        local saved = KuroKitDB.modules[name] or {}
+        UpgradeModuleSettings(saved, m.defaults, fromVersion)
+        KuroKitDB.modules[name] = BindDefaults(saved, m.defaults)
         m.db = KuroKitDB.modules[name]
         if m.OnLoad then safecall(m.OnLoad, m) end -- settings migrations, before the panel reads them
     end
+    KuroKitDB.version = DB_VERSION
     safecall(ns.BuildOptions, ns)
 end)
 

@@ -3,6 +3,8 @@
 A small all-in-one addon for **World of Warcraft: Forever**. It replaces a pile of feature-rich addons with just the handful of features actually used, written from scratch. It works with Blizzard's default UI and Edit Mode rather than replacing them.
 
 > Personal project, early days. Built for the Forever client (interface 16001); other WoW versions aren't supported.
+>
+> Deliberately opinionated: each feature does one thing the way I like it, with an on/off switch and almost no other settings.
 
 ## Features
 
@@ -11,9 +13,13 @@ A small all-in-one addon for **World of Warcraft: Forever**. It replaces a pile 
 | General | **Repair & Sell Greys** | At a merchant: repair everything (guild funds first, or own gold) and sell grey items, retrying until the server has taken them all. |
 | General | **Hide Error Spam** | Hides the red cooldown / resource / range / target errors. Useful ones (bags full, quest log full) still show. |
 | General | **Follow Default Audio Device** | Game sound follows Windows' default output device (headset on/off), instead of staying on the device the game started with. |
-| General | **Graphics** | Always-on sharpening toggle. |
-| Interface | **Micro Menu & Bags** | Micro menu and bag bar stay hidden until you hover their spot, then slide in from the screen edge. Optional single bag button styled like a micro menu button and lined up with it automatically. Positions stay in Blizzard's Edit Mode. |
-| Interface | **Tooltip at Cursor** | Tooltips follow the mouse at a chosen side, clear of the cursor icon (and of the unit health bar). |
+| General | **Graphics** | Sharpening at every render scale (on by default, toggle kept). |
+| Interface | **Micro Menu & Bags** | Micro menu and bag bar stay hidden until you hover their spot, then slide in from the screen edge. The bag bar becomes a single backpack button, styled like a micro menu button and lined up with it automatically. Positions stay in Blizzard's Edit Mode. |
+| Interface | **XP & Reputation Bars** | Same hover reveal for the experience and reputation bars. Experience always stays in Status Bar 1, also while you track a reputation. |
+| Interface | **Tooltip at Cursor** | Tooltips follow the mouse, just below and to the right of the cursor icon. Back to Blizzard's spot while you play with a controller. |
+| Interface | **Tooltip Extras** | Class-coloured name, class line and border; level in difficulty colour; race and faction in faction colour; guild name in green (brighter for your own guild) with rank; talent spec and role (best guess from talent points); target line; mount and buffs (out of combat); item quality border and stack size. |
+| Interface | **Controller Target Tooltip** | While you play with a controller, the tooltip of your target, or of what you aim at with soft targeting, stays in the default tooltip spot. Gone as soon as you touch the mouse or keyboard; works with the game's gamepad UI off. |
+| Chat & Map | **Minimal Chat** | Only the chat text shows: tabs, buttons and scroll bar appear while you hover the chat, no background, plain input line. The chat can sit right at the left screen edge (its buttons then move to the right). Timestamp format setting. |
 | Developer | **Developer Tools** | `/rl` to reload, Lua error popups toggle, and a frame spike finder. |
 
 Everything is configured in **Settings → AddOns → KuroKit** (or `/kk`, or the minimap's addon menu). Settings are shared by all characters.
@@ -29,6 +35,7 @@ Everything is configured in **Settings → AddOns → KuroKit** (or `/kk`, or th
 - `/kk`: open the settings
 - `/kk list`: features and whether they're on, in chat
 - `/kk errors`: which error types are hidden (diagnostics)
+- `/kk targettooltip`: controller detection and aim state (diagnostics)
 - `/kk dev spikes [seconds]`: frame spike finder
 - `/rl`: reload the UI
 

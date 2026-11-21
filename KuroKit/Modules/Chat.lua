@@ -1,0 +1,242 @@
+-- Chat: minimal chat. Unhovered, only the chat text shows: no background, and
+-- tabs / buttons / scroll bar appear while the mouse is over the chat
+-- (Core/HoverReveal.lua, fade mode). The input box is plain (no border art) and
+-- Edit Mode can put the chat right at the screen edge. Settings: timestamps and
+-- that's it; the rest is always on.
+--
+-- Chat is the most taint-sensitive part of the 12.x UI: a tainted chat code path
+-- breaks secret chat messages and sending in instances. So this module:
+--  * never hooks any FCF_* / chat function and never writes Blizzard's chat
+--    globals (e.g. CHAT_FRAME_TAB_*_ALPHA): it only changes alpha / visibility;
+--  * never touches the alpha of frames Blizzard fades itself (tabs, button
+--    frames, scroll bars: FCF_FadeIn/OutChatFrame): it fades their *contents*
+--    (regions and child frames) instead, so the result is ours x Blizzard's;
+--  * hides the background textures (CHAT_FRAME_TEXTURES) outright: Blizzard's
+--    fade skips hidden ones and nothing re-shows them. Out of combat only (chat
+--    frames can be protected while a temporary whisper window exists);
+--  * picks up new windows (whisper tabs etc.) from our own event dispatch, a
+--    frame later, outside Blizzard's call chains.
+-- Note: the new-message flash on other tabs runs its own animation and may still
+-- blink while the rest is hidden.
+local _, ns = ...
+
+-- Default: 24-hour clock, hours and minutes. The game's own default is none;
+-- applied once (first time KuroKit runs), after that it's the user's choice.
+local DEFAULT_TIMESTAMPS = TIMESTAMP_FORMAT_HHMM_24HR or "%H:%M "
+
+-- Same timestamp formats as Blizzard's Social settings (TIMESTAMP_FORMAT_*).
+local function TimestampValues()
+    local example = time({ year = 2010, month = 12, day = 15, hour = 15, min = 27, sec = 32 })
+    local values = { { "none", TIMESTAMP_FORMAT_NONE or "None" } }
+    for _, fmt in ipairs({
+        TIMESTAMP_FORMAT_HHMM, TIMESTAMP_FORMAT_HHMMSS, TIMESTAMP_FORMAT_HHMM_AMPM,
+        TIMESTAMP_FORMAT_HHMMSS_AMPM, TIMESTAMP_FORMAT_HHMM_24HR, TIMESTAMP_FORMAT_HHMMSS_24HR,
+    }) do
+        if fmt then values[#values + 1] = { fmt, date(fmt, example) } end
+    end
+    return values
+end
+
+local M = ns:NewModule("Chat", {
+    title = "Minimal Chat",
+    group = "Chat & Map",
+    desc = "Only the chat text shows: tabs, buttons and the scroll bar appear while you hover the chat, and the background is gone.",
+    options = {
+        { type = "dropdown", name = "Timestamps", default = DEFAULT_TIMESTAMPS,
+          tooltip = "Time in front of each chat line (the game's own Chat Timestamps setting).",
+          values = TimestampValues(),
+          get = function() return GetCVar("showTimestamps") end,
+          set = function(value) SetCVar("showTimestamps", value) end },
+    },
+})
+
+-- These used to be options; now always on. Drop their stored values.
+function M:OnLoad()
+    self.db.hideBackground, self.db.plainInput, self.db.screenEdge, self.db.hideDelay = nil, nil, nil, nil
+end
+
+local reveal
+
+local function ChatFrameNames()
+    return CHAT_FRAMES or {}
+end
+
+---------------------------------------------------------------------------
+-- Background
+---------------------------------------------------------------------------
+local function ApplyBackground()
+    if not CHAT_FRAME_TEXTURES then return end
+    ns:OutOfCombat(function()
+        for _, name in ipairs(ChatFrameNames()) do
+            for _, suffix in ipairs(CHAT_FRAME_TEXTURES) do
+                local region = _G[name .. suffix]
+                if region then region:Hide() end
+            end
+        end
+    end)
+end
+
+---------------------------------------------------------------------------
+-- Plain input box: the box art faded out (alpha only: Blizzard shows/hides the
+-- focus art itself) and the box shifted left so "Say:" starts where the chat
+-- text starts. Blizzard anchors the box 5 px left of the chat and puts the
+-- header 15 px into it. Plain setters only, from our own dispatch.
+---------------------------------------------------------------------------
+local EDITBOX_ART = { "Left", "Mid", "Right", "FocusLeft", "FocusMid", "FocusRight" }
+local EDITBOX_X = -15
+
+local function ApplyEditBoxes()
+    ns:OutOfCombat(function()
+        for _, name in ipairs(ChatFrameNames()) do
+            local frame, editBox = _G[name], _G[name .. "EditBox"]
+            if frame and editBox and frame.ScrollBar then
+                for _, suffix in ipairs(EDITBOX_ART) do
+                    local art = _G[name .. "EditBox" .. suffix]
+                    if art then art:SetAlpha(0) end
+                end
+                editBox:ClearAllPoints()
+                editBox:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", EDITBOX_X, -2)
+                editBox:SetPoint("RIGHT", frame.ScrollBar, "RIGHT", 8, 0)
+            end
+        end
+    end)
+end
+
+---------------------------------------------------------------------------
+-- Screen edge. Edit Mode clamps the chat by its selection box, which reaches
+-- 32 px past the chat's left side to cover the button column. Narrowing that
+-- box to the chat itself lets the chat reach the edge; Edit Mode recomputes its
+-- clamp from the box, so the change sticks. Blizzard's own rule already puts the
+-- buttons on the right of a chat at the left edge, but only re-checks on a
+-- reload or re-dock, so we place them right away (plain setters on the button
+-- frame, never Blizzard's FCF_* functions or fields).
+---------------------------------------------------------------------------
+local movedButtons = {}
+
+local function AnchorButtons(frame, side)
+    local buttons, bg = frame.buttonFrame, frame.Background
+    buttons:ClearAllPoints()
+    if side == "right" then
+        buttons:SetPoint("TOPLEFT", bg, "TOPRIGHT", 3, -3)
+        buttons:SetPoint("BOTTOMLEFT", bg, "BOTTOMRIGHT", 3, 6)
+    else
+        buttons:SetPoint("TOPRIGHT", bg, "TOPLEFT", -3, -3)
+        buttons:SetPoint("BOTTOMRIGHT", bg, "BOTTOMLEFT", -3, 6)
+    end
+end
+
+local function ApplyScreenEdge()
+    ns:OutOfCombat(function()
+        local main = ChatFrame1
+        if main and main.Selection then
+            local selection = main.Selection
+            selection:ClearAllPoints()
+            selection:SetPoint("TOPLEFT", main, "TOPLEFT", 0, 60)
+            selection:SetPoint("BOTTOMRIGHT", main, "BOTTOMRIGHT", 25, -32)
+            local _, right, top, bottom = main:GetClampRectInsets()
+            main:SetClampRectInsets(0, right, top, bottom)
+        end
+        -- Buttons: on the right while there's no room for them on the left.
+        for _, name in ipairs(ChatFrameNames()) do
+            local frame = _G[name]
+            local buttons = frame and frame.buttonFrame
+            local left = frame and frame:GetLeft()
+            if buttons and frame.Background and left then
+                local noRoom = left < buttons:GetWidth() + 6
+                    and left < (GetScreenWidth() - (frame:GetRight() or 0))
+                if noRoom then
+                    AnchorButtons(frame, "right")
+                    movedButtons[buttons] = true
+                elseif movedButtons[buttons] then
+                    AnchorButtons(frame, frame.buttonSide == "right" and "right" or "left")
+                    movedButtons[buttons] = nil
+                end
+            end
+        end
+        if reveal then reveal:Refresh() end
+    end)
+end
+
+---------------------------------------------------------------------------
+-- Hover reveal
+---------------------------------------------------------------------------
+-- A Blizzard-faded frame's contents: its regions and direct child frames.
+local function AddContents(list, frame)
+    if not frame then return end
+    for _, region in ipairs({ frame:GetRegions() }) do list[#list + 1] = region end
+    for _, child in ipairs({ frame:GetChildren() }) do list[#list + 1] = child end
+end
+
+local function Targets(list)
+    for _, name in ipairs(ChatFrameNames()) do
+        local tab = _G[name .. "Tab"]
+        if tab and tab:IsShown() then AddContents(list, tab) end
+        local frame = _G[name]
+        if frame and frame:IsShown() then
+            AddContents(list, frame.buttonFrame)
+            AddContents(list, frame.ScrollBar)
+            AddContents(list, frame.ScrollToBottomButton)
+        end
+    end
+    if GENERAL_CHAT_DOCK then AddContents(list, GENERAL_CHAT_DOCK.overflowButton) end
+    AddContents(list, QuickJoinToastButton)
+    AddContents(list, ChatFrameToggleVoiceDeafenButton)
+    AddContents(list, ChatFrameToggleVoiceMuteButton)
+end
+
+local function Zone(list)
+    for _, name in ipairs(ChatFrameNames()) do
+        local frame = _G[name]
+        if frame and frame:IsShown() then
+            list[#list + 1] = frame
+            if frame.buttonFrame and frame.buttonFrame:IsShown() then list[#list + 1] = frame.buttonFrame end
+        end
+        local tab = _G[name .. "Tab"]
+        if tab and tab:IsShown() then list[#list + 1] = tab end
+    end
+end
+
+-- New/closed windows (whisper tabs, chat window changes): re-apply a frame later,
+-- from our own dispatch.
+local pending = false
+local function WindowsChanged()
+    if pending then return end
+    pending = true
+    C_Timer.After(0, function()
+        pending = false
+        ApplyBackground()
+        ApplyEditBoxes()
+        ApplyScreenEdge()
+        reveal:Reapply()
+        reveal:Refresh()
+    end)
+end
+
+function M:OnEnable()
+    reveal = ns.NewHoverReveal({
+        targets = Targets,
+        zone = Zone,
+        fade = true,
+    })
+
+    if not self.db.timestampsSeeded then
+        self.db.timestampsSeeded = true
+        if GetCVar("showTimestamps") == "none" then SetCVar("showTimestamps", DEFAULT_TIMESTAMPS) end
+    end
+
+    ApplyBackground()
+    ApplyEditBoxes()
+    ApplyScreenEdge()
+    -- After moving the chat in Edit Mode: re-check the button side.
+    EventRegistry:RegisterCallback("EditMode.Exit", function() RunNextFrame(ApplyScreenEdge) end, M)
+    for _, event in ipairs({
+        "UPDATE_CHAT_WINDOWS", "UPDATE_FLOATING_CHAT_WINDOWS",
+        "CHAT_MSG_WHISPER", "CHAT_MSG_BN_WHISPER", "CHAT_MSG_WHISPER_INFORM", "CHAT_MSG_BN_WHISPER_INFORM",
+    }) do
+        ns:On(event, WindowsChanged)
+    end
+    ns:On("UI_SCALE_CHANGED", function() reveal:Refresh() end)
+    ns:On("DISPLAY_SIZE_CHANGED", function() reveal:Refresh() end)
+
+    reveal:Start()
+end

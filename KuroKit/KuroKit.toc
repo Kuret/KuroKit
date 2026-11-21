@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: KuroKit
 ## Notes: Personal all-in-one addon: only the features actually used, nothing else.
-## Version: 0.1.0
+## Version: 0.2.0
 ## X-License: MIT
 ## SavedVariables: KuroKitDB
 ## Category: Interface Enhancements
@@ -9,6 +9,8 @@
 ## AddonCompartmentFunc: KuroKit_OnAddonCompartmentClick
 
 Core\Core.lua
+Core\Input.lua
+Core\HoverReveal.lua
 Core\Options.lua
 Core\Slash.lua
 
@@ -16,6 +18,10 @@ Modules\Dev.lua
 Modules\Vendor.lua
 Modules\Errors.lua
 Modules\MenuTray.lua
+Modules\StatusBars.lua
+Modules\Chat.lua
 Modules\AudioDevice.lua
 Modules\Graphics.lua
 Modules\Tooltip.lua
+Modules\TooltipExtras.lua
+Modules\TargetTooltip.lua

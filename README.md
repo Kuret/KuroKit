@@ -19,6 +19,8 @@ A small all-in-one addon for **World of Warcraft: Forever**. It replaces a pile 
 | Interface | **Tooltip at Cursor** | Tooltips follow the mouse, just below and to the right of the cursor icon. Back to Blizzard's spot while you play with a controller. |
 | Interface | **Tooltip Extras** | Class-coloured name, class line and border; level in difficulty colour; race and faction in faction colour; guild name in green (brighter for your own guild) with rank; talent spec and role (best guess from talent points); target line; mount and buffs (out of combat); item quality border and stack size. |
 | Interface | **Controller Target Tooltip** | While you play with a controller, the tooltip of your target, or of what you aim at with soft targeting, stays in the default tooltip spot. Gone as soon as you touch the mouse or keyboard; works with the game's gamepad UI off. |
+| Chat & Map | **Square Minimap** | Square map in the bronze frame of Forever's windows, zone in its title bar. FPS, clock (left-click calendar, right-click stopwatch) and mail inside the map; addon menu, tracking, calendar and coordinates appear on hover. Addon minimap buttons move into Blizzard's addon menu. Built-in gap to the screen edge; size and position stay in Edit Mode. |
+| Gameplay | **Fishing** | One key (Key Bindings → KuroKit) casts and reels in; double right-click in the world casts too. While fishing the splash is loud, music and nameplates are off and the bobber is easy to target; everything comes back a few seconds after you stop. |
 | Chat & Map | **Minimal Chat** | Only the chat text shows: tabs, buttons and scroll bar appear while you hover the chat, no background, plain input line. The chat can sit right at the left screen edge (its buttons then move to the right). Timestamp format setting. |
 | Developer | **Developer Tools** | `/rl` to reload, Lua error popups toggle, and a frame spike finder. |
 
@@ -36,6 +38,7 @@ Everything is configured in **Settings → AddOns → KuroKit** (or `/kk`, or th
 - `/kk list`: features and whether they're on, in chat
 - `/kk errors`: which error types are hidden (diagnostics)
 - `/kk targettooltip`: controller detection and aim state (diagnostics)
+- `/kk fishing debug`: explain double right-clicks that don't cast
 - `/kk dev spikes [seconds]`: frame spike finder
 - `/rl`: reload the UI
 

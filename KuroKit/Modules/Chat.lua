@@ -133,8 +133,12 @@ local function ApplyScreenEdge()
             selection:ClearAllPoints()
             selection:SetPoint("TOPLEFT", main, "TOPLEFT", 0, 60)
             selection:SetPoint("BOTTOMRIGHT", main, "BOTTOMRIGHT", 25, -32)
-            local _, right, top, bottom = main:GetClampRectInsets()
-            main:SetClampRectInsets(0, right, top, bottom)
+            local left, right, top, bottom = main:GetClampRectInsets()
+            if left ~= 0 then
+                main:SetClampRectInsets(0, right, top, bottom)
+                -- Edit Mode placed the chat under the old clamp: put it back at its saved spot.
+                ns.ReapplyEditModeAnchor(main)
+            end
         end
         -- Buttons: on the right while there's no room for them on the left.
         for _, name in ipairs(ChatFrameNames()) do

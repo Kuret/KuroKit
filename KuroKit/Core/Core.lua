@@ -93,6 +93,30 @@ ns:On("PLAYER_REGEN_ENABLED", function()
 end)
 
 ---------------------------------------------------------------------------
+-- Edit Mode: put a system frame back at its saved layout position. Edit Mode
+-- applies saved positions before our modules run; a frame whose clamp we relax
+-- afterwards (chat, minimap) stays where the old clamp pushed it. Re-applying
+-- the saved anchor (read-only from Blizzard's systemInfo, plain SetPoint) lets
+-- it land where it was saved. Skipped while Edit Mode is open (unsaved drags)
+-- and for frames Blizzard positions itself in their default spot.
+---------------------------------------------------------------------------
+function ns.ReapplyEditModeAnchor(frame)
+    local info = frame and frame.systemInfo
+    local anchor = info and info.anchorInfo
+    if not anchor or (InCombatLockdown() and frame:IsProtected()) then return end
+    if EditModeManagerFrame and EditModeManagerFrame.IsEditModeActive and EditModeManagerFrame:IsEditModeActive() then return end
+    if frame.GetManagedFrameContainer and frame:GetManagedFrameContainer()
+        and frame.IsInDefaultPosition and frame:IsInDefaultPosition() then return end
+    local scale = frame:GetScale()
+    frame:ClearAllPoints()
+    frame:SetPoint(anchor.point, anchor.relativeTo, anchor.relativePoint, anchor.offsetX / scale, anchor.offsetY / scale)
+    local anchor2 = info.anchorInfo2
+    if anchor2 then
+        frame:SetPoint(anchor2.point, anchor2.relativeTo, anchor2.relativePoint, anchor2.offsetX / scale, anchor2.offsetY / scale)
+    end
+end
+
+---------------------------------------------------------------------------
 -- Saved settings: one account-wide table, shared by all characters.
 --   KuroKitDB = { enabled = { [module] = bool }, modules = { [module] = {...} } }
 ---------------------------------------------------------------------------

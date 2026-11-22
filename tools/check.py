@@ -24,12 +24,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 ADDON = ROOT / "KuroKit"
 TOC = ADDON / "KuroKit.toc"
 
-ALLOWED_WRITES = re.compile(r"^(KuroKitDB|KuroKit|KuroKit_OnAddonCompartmentClick|SLASH_[A-Z0-9_]+)$")
+ALLOWED_WRITES = re.compile(r"^(KuroKitDB|KuroKit|KuroKit_[A-Za-z]+|SLASH_[A-Z0-9_]+|BINDING_(NAME|HEADER)_KUROKIT_[A-Z0-9_]+)$")
 
 # Lowercase / short globals that are fine to read (Lua stdlib + WoW Lua helpers).
 ALLOWED_READS = set("""
     _G assert collectgarbage date debugstack error format geterrorhandler getfenv getmetatable
-    hooksecurefunc ipairs issecretvalue math max min next pairs pcall print rawequal rawget rawset
+    hooksecurefunc ipairs issecretvalue issecurevariable math max min next pairs pcall print rawequal rawget rawset
     securecall select setfenv setmetatable string strjoin strlen strlower strmatch strsplit strsub
     strtrim strupper table time tinsert tonumber tostring tremove type unpack wipe xpcall bit
     floor ceil abs sort
@@ -142,6 +142,8 @@ def main():
         if path.suffix.lower() not in (".lua", ".xml"):
             continue
         rel = path.relative_to(ADDON).as_posix()
+        if rel.lower() == "bindings.xml":
+            continue  # the game loads an addon's Bindings.xml by itself; it must not be in the TOC
         if rel.lower() not in listed_lower:
             problems.append(f"not listed in TOC (never loads): {rel}")
         if path.suffix.lower() != ".lua":

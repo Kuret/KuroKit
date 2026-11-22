@@ -172,6 +172,8 @@ local function AddButton(parent, y, width, label, tooltip, text, onClick)
     return 30
 end
 
+local SUBSECTION_GAP = 14 -- space above a sub-section header that follows other rows
+
 local function AddSubHeader(parent, y, text)
     local fs = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     fs:SetPoint("TOPLEFT", PAD + 16, y - 8)
@@ -253,7 +255,9 @@ local function AddSection(m, parent, y, width)
         y = y - desc:GetStringHeight() - 6
     end
 
-    for _, row in ipairs(m.options or {}) do
+    for i, row in ipairs(m.options or {}) do
+        -- A sub-section after other rows gets some air above its header.
+        if row.type == "header" and i > 1 then y = y - SUBSECTION_GAP end
         y = y - AddOptionRow(m, parent, y, width, row)
     end
     section:SetHeight(start - y + 8)

@@ -162,6 +162,102 @@ local function ApplyScreenEdge()
 end
 
 ---------------------------------------------------------------------------
+-- Copy chat: a button in the chat button column (above the chat menu bubble)
+-- opens a window with the selected chat tab's text, selected, ready for
+-- Ctrl+C. Colour codes, links and icons are stripped to plain text; lines the
+-- game keeps secret from addons are left out. Our own frames only.
+---------------------------------------------------------------------------
+local copyButton, copyWindow, copyEdit, copyScroll
+
+local function PlainLine(text)
+    text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    text = text:gsub("|H.-|h(.-)|h", "%1")
+    text = text:gsub("|T.-|t", ""):gsub("|A.-|a", "")
+    text = text:gsub("|K.-|k", "(Battle.net name)") -- protected names can't be copied
+    return text
+end
+
+local function ChatText(frame)
+    local lines = {}
+    if frame and frame.GetNumMessages then
+        for i = 1, frame:GetNumMessages() do
+            local text = frame:GetMessageInfo(i)
+            if type(text) == "string" and not (issecretvalue and issecretvalue(text)) then
+                lines[#lines + 1] = PlainLine(text)
+            end
+        end
+    end
+    return table.concat(lines, "\n")
+end
+
+local function BuildCopyWindow()
+    local window = CreateFrame("Frame", "KuroKitChatCopy", UIParent, "ButtonFrameTemplate")
+    ButtonFrameTemplate_HidePortrait(window)
+    window:SetSize(640, 420)
+    window:SetPoint("CENTER")
+    window:SetFrameStrata("DIALOG")
+    window:SetToplevel(true)
+    window:EnableMouse(true)
+    window:SetMovable(true)
+    window:RegisterForDrag("LeftButton")
+    window:SetScript("OnDragStart", window.StartMoving)
+    window:SetScript("OnDragStop", window.StopMovingOrSizing)
+    if window.SetTitle then window:SetTitle("Copy chat (Ctrl+C to copy, Esc to close)") end
+    if window.Inset then
+        window.Inset:ClearAllPoints()
+        window.Inset:SetPoint("TOPLEFT", 8, -28)
+        window.Inset:SetPoint("BOTTOMRIGHT", -6, 8)
+    end
+
+    local scroll = CreateFrame("ScrollFrame", nil, window, "ScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", 16, -36)
+    scroll:SetPoint("BOTTOMRIGHT", -30, 14)
+    local edit = CreateFrame("EditBox", nil, scroll)
+    edit:SetMultiLine(true)
+    edit:SetAutoFocus(false)
+    edit:SetFontObject(ChatFontNormal)
+    edit:SetWidth(580)
+    edit:SetScript("OnEscapePressed", function() window:Hide() end)
+    scroll:SetScrollChild(edit)
+    scroll:SetScript("OnSizeChanged", function(self, width) edit:SetWidth(width) end)
+    window:Hide()
+    copyWindow, copyEdit, copyScroll = window, edit, scroll
+end
+
+local function ShowCopyWindow()
+    if not copyWindow then BuildCopyWindow() end
+    copyEdit:SetText(ChatText(SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME))
+    copyWindow:Show()
+    copyEdit:SetFocus()
+    copyEdit:HighlightText()
+    C_Timer.After(0, function() copyScroll:SetVerticalScroll(copyScroll:GetVerticalScrollRange()) end)
+end
+
+local function BuildCopyButton()
+    local anchor = ChatFrameMenuButton
+    if not anchor then return end
+    local button = CreateFrame("Button", nil, UIParent)
+    button:SetSize(27, 26)
+    button:SetPoint("BOTTOM", anchor, "TOP", 0, 2)
+    button:SetFrameStrata(anchor:GetFrameStrata())
+    button:SetNormalAtlas("chatframe-button-up")
+    button:SetPushedAtlas("chatframe-button-down")
+    button:SetHighlightAtlas("chatframe-button-highlight", "ADD")
+    local icon = button:CreateTexture(nil, "OVERLAY")
+    icon:SetSize(15, 15)
+    icon:SetPoint("CENTER", 0, 1)
+    icon:SetTexture("Interface\\Buttons\\UI-GuildButton-PublicNote-Up")
+    button:SetScript("OnClick", ShowCopyWindow)
+    button:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Copy chat")
+        GameTooltip:Show()
+    end)
+    button:SetScript("OnLeave", GameTooltip_Hide)
+    copyButton = button
+end
+
+---------------------------------------------------------------------------
 -- Hover reveal
 ---------------------------------------------------------------------------
 -- A Blizzard-faded frame's contents: its regions and direct child frames.
@@ -184,6 +280,7 @@ local function Targets(list)
     end
     if GENERAL_CHAT_DOCK then AddContents(list, GENERAL_CHAT_DOCK.overflowButton) end
     AddContents(list, QuickJoinToastButton)
+    if copyButton then list[#list + 1] = copyButton end
     AddContents(list, ChatFrameToggleVoiceDeafenButton)
     AddContents(list, ChatFrameToggleVoiceMuteButton)
 end
@@ -217,6 +314,7 @@ local function WindowsChanged()
 end
 
 function M:OnEnable()
+    BuildCopyButton()
     reveal = ns.NewHoverReveal({
         targets = Targets,
         zone = Zone,

@@ -1,8 +1,8 @@
 -- Minimap: a square minimap in the bronze frame of WoW Forever's windows.
 --   title bar     zone name (PvP colours), centred
---   top-left      FPS
+--   top-left      FPS, mail / crafting-order indicator under it
 --   top-right     clock (game clock format; left-click calendar, right-click
---                 stopwatch/alarm), mail / crafting-order indicator under it
+--                 stopwatch/alarm)
 --   bottom-left   addon menu, tracking, calendar   (only while hovering)
 --   bottom-right  coordinates                       (only while hovering)
 -- Blizzard's header strip (zone button, Blizzard clock, day/night ring) is
@@ -236,11 +236,15 @@ end
 local overlay, zoneText, fpsText, clockButton, clockText, coordsText, hoverWatch
 local hoverIcons = {}
 
+local MAIL_SCALE = 0.8 -- Blizzard's mail icon is large next to the FPS text
+local MAIL_GAP = 6     -- FPS text to the mail icon
+
 local function PlaceMail()
     local indicator = MinimapCluster.IndicatorFrame
-    if not (indicator and clockButton) then return end
+    if not (indicator and fpsText) then return end
     indicator:ClearAllPoints()
-    indicator:SetPoint("TOP", clockButton, "BOTTOM", 0, 2) -- centred under the clock
+    indicator:SetScale(MAIL_SCALE)
+    indicator:SetPoint("TOPLEFT", fpsText, "BOTTOMLEFT", 0, -MAIL_GAP) -- under the FPS
     indicator:SetFrameLevel(Minimap:GetFrameLevel() + 10)
 end
 

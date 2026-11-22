@@ -13,15 +13,19 @@ A small all-in-one addon for **World of Warcraft: Forever**. It replaces a pile 
 | General | **Repair & Sell Greys** | At a merchant: repair everything (guild funds first, or own gold) and sell grey items, retrying until the server has taken them all. |
 | General | **Hide Error Spam** | Hides the red cooldown / resource / range / target errors. Useful ones (bags full, quest log full) still show. |
 | General | **Follow Default Audio Device** | Game sound follows Windows' default output device (headset on/off), instead of staying on the device the game started with. |
-| General | **Graphics** | Sharpening at every render scale (on by default, toggle kept). |
+| General | **Graphics** | Sharpening at every render scale (on by default, toggle kept), and HDR output with sliders for your monitor's peak brightness, brightness and highlight factor. |
 | Interface | **Micro Menu & Bags** | Micro menu and bag bar stay hidden until you hover their spot, then slide in from the screen edge. The bag bar becomes a single backpack button, styled like a micro menu button and lined up with it automatically. Positions stay in Blizzard's Edit Mode. |
 | Interface | **XP & Reputation Bars** | Same hover reveal for the experience and reputation bars. Experience always stays in Status Bar 1, also while you track a reputation. |
 | Interface | **Tooltip at Cursor** | Tooltips follow the mouse, just below and to the right of the cursor icon. Back to Blizzard's spot while you play with a controller. |
 | Interface | **Tooltip Extras** | Class-coloured name, class line and border; level in difficulty colour; race and faction in faction colour; guild name in green (brighter for your own guild) with rank; talent spec and role (best guess from talent points); target line; mount and buffs (out of combat); item quality border and stack size. |
+| Interface | **Nameplates** | Friendly players, NPCs and pets show only their name (class colour, NPC colours, pet blue) with the guild or NPC title under it. Enemy plates show cast bars with spell, icon and target, health as number and percentage, and all your own debuffs. Quest mobs show your objective progress (8/10) in a box left of the health bar, including items they drop when Polestar is installed, plus a class-coloured dot for each group member who still needs the mob (their count shows once yours is done). Plates keep one size at any distance and when targeted. |
+| Interface | **Best Quest Reward** | When a quest lets you choose a reward, the one that sells for the most (price × count) gets a gold coin, in the quest frame and the quest log. |
 | Interface | **Controller Target Tooltip** | While you play with a controller, the tooltip of your target, or of what you aim at with soft targeting, stays in the default tooltip spot. Gone as soon as you touch the mouse or keyboard; works with the game's gamepad UI off. |
 | Chat & Map | **Square Minimap** | Square map in the bronze frame of Forever's windows, zone in its title bar. FPS, clock (left-click calendar, right-click stopwatch) and mail inside the map; addon menu, tracking, calendar and coordinates appear on hover. Addon minimap buttons move into Blizzard's addon menu. Built-in gap to the screen edge; size and position stay in Edit Mode. |
 | Gameplay | **Fishing** | One key (Key Bindings → KuroKit) casts and reels in; double right-click in the world casts too. While fishing the splash is loud, music and nameplates are off and the bobber is easy to target; everything comes back a few seconds after you stop. |
-| Chat & Map | **Minimal Chat** | Only the chat text shows: tabs, buttons and scroll bar appear while you hover the chat, no background, plain input line. The chat can sit right at the left screen edge (its buttons then move to the right). Timestamp format setting. |
+| Gameplay | **Flight Timer** | While on a flight path: origin, destination and time left at the top centre (just above the zone text), with the cast bar's look. Switches to the next stop when you use the game's land-early button. Recorded flight times (estimated from the route's length until you've flown it); the flight master's map shows each destination's flight time. |
+| Gameplay | **Spell Uprank** | When you learn a higher rank of a spell, the lower ranks on your action bars are replaced by it (out of combat), with a line in chat. A lower rank you place on purpose afterwards stays. Pet abilities on your own bars follow your pet's ranks. |
+| Chat & Map | **Minimal Chat** | Only the chat text shows: tabs, buttons and scroll bar appear while you hover the chat, no background, plain input line. The chat can sit right at the left screen edge (its buttons then move to the right). A copy button opens the chat text for copying. Timestamp format setting. |
 | Developer | **Developer Tools** | `/rl` to reload, Lua error popups toggle, and a frame spike finder. |
 
 Everything is configured in **Settings → AddOns → KuroKit** (or `/kk`, or the minimap's addon menu). Settings are shared by all characters.
@@ -39,6 +43,8 @@ Everything is configured in **Settings → AddOns → KuroKit** (or `/kk`, or th
 - `/kk errors`: which error types are hidden (diagnostics)
 - `/kk targettooltip`: controller detection and aim state (diagnostics)
 - `/kk fishing debug`: explain double right-clicks that don't cast
+- `/kk uprank`: replace every lower spell rank on your action bars now
+- `/kk flighttimer test`: show a sample flight timer for 30 seconds
 - `/kk dev spikes [seconds]`: frame spike finder
 - `/rl`: reload the UI
 

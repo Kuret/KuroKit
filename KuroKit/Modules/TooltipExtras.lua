@@ -300,7 +300,7 @@ local function AddTargetLine(tooltip, unit)
     if UnitIsUnit(target, "player") then
         text = "|cffff4040You|r"
     else
-        local name = Plain(UnitName(target))
+        local name = ns.UnitFullName(target)
         if not name then return end
         local color = UnitIsPlayer(target) and ClassColor(target)
         text = color and color:WrapTextInColorCode(name) or name

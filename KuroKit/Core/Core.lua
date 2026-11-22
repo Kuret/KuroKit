@@ -93,6 +93,24 @@ ns:On("PLAYER_REGEN_ENABLED", function()
 end)
 
 ---------------------------------------------------------------------------
+-- Names: Forever characters have a first name and a surname (UnitName
+-- returns both); the full name joins them with the game's own separator, as
+-- Blizzard's NameUtil does. First names alone aren't unique. nil when the
+-- name is secret.
+---------------------------------------------------------------------------
+local SURNAME_SEPARATOR = Constants.CharacterNameSeparatorConsts
+    and Constants.CharacterNameSeparatorConsts.CHARACTERNAME_SURNAME_SEPARATOR or " "
+
+function ns.UnitFullName(unit)
+    local name, surname = UnitName(unit)
+    if type(name) ~= "string" or (issecretvalue and issecretvalue(name)) then return nil end
+    if type(surname) == "string" and surname ~= "" and not (issecretvalue and issecretvalue(surname)) then
+        return name .. SURNAME_SEPARATOR .. surname
+    end
+    return name
+end
+
+---------------------------------------------------------------------------
 -- Edit Mode: put a system frame back at its saved layout position. Edit Mode
 -- applies saved positions before our modules run; a frame whose clamp we relax
 -- afterwards (chat, minimap) stays where the old clamp pushed it. Re-applying

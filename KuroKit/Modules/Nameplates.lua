@@ -726,8 +726,35 @@ function M:OnSlash(args)
     end
 end
 
+---------------------------------------------------------------------------
+-- Questie: its nameplate quest icon sits where the quest box goes (the
+-- plate's left edge) and draws over it. Once per Questie profile, KuroKit
+-- turns Questie's nameplate icons off, the way Questie's own checkbox does
+-- (Questie options > Nameplate), and says so in chat. Turning them back on
+-- there is respected.
+---------------------------------------------------------------------------
+local function TakeOverQuestieNameplates()
+    local db = Questie and Questie.db
+    local profile = db and db.profile
+    if not profile then return end
+    local name = db.GetCurrentProfile and db:GetCurrentProfile() or "Default"
+    M.db.questieNameplatesOff = M.db.questieNameplatesOff or {}
+    if M.db.questieNameplatesOff[name] then return end
+    M.db.questieNameplatesOff[name] = true
+    if not profile.nameplateEnabled then return end
+    profile.nameplateEnabled = false
+    local nameplate = QuestieLoader and QuestieLoader.ImportModule and QuestieLoader:ImportModule("QuestieNameplate")
+    if nameplate and nameplate.HideCurrentFrames then nameplate:HideCurrentFrames() end
+    ns:Print("turned off Questie's nameplate quest icons: KuroKit's quest box shows your progress there. "
+        .. "Questie options > Nameplate turns them back on.")
+end
+
 function M:OnEnable()
     ApplyCVars()
+    local questie = Questie and Questie.API
+    if questie and type(questie.RegisterOnReady) == "function" then
+        questie.RegisterOnReady(function() ns.safecall(TakeOverQuestieNameplates) end)
+    end
     hooksecurefunc("CompactUnitFrame_UpdateName", OnUpdateName)
     ns:On("NAME_PLATE_UNIT_ADDED", OnPlateAdded)
     ns:On("NAME_PLATE_UNIT_REMOVED", OnPlateRemoved)

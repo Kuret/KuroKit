@@ -111,6 +111,46 @@ function ns.UnitFullName(unit)
 end
 
 ---------------------------------------------------------------------------
+-- Text over the world (flight timer, loot feed): a thin outline on top of a
+-- solid shadow, so it reads on bright backgrounds too.
+---------------------------------------------------------------------------
+function ns.OutlineText(fs)
+    local file, size = fs:GetFont()
+    if file then fs:SetFont(file, size, "OUTLINE") end
+    fs:SetShadowOffset(2, -2)
+    fs:SetShadowColor(0, 0, 0, 1)
+end
+
+---------------------------------------------------------------------------
+-- Minimap button plate: Forever draws the calendar button as one atlas, a
+-- bronze plate with the calendar glyph on it. A plate for another button is
+-- that atlas with a dark fill over the glyph, drawn at the bottom of
+-- `frame` (its own art and text go on top). Used by the quest tracker's
+-- minimap button and the square minimap's addon menu button, so they match
+-- the calendar and tracking buttons.
+---------------------------------------------------------------------------
+local PLATE_ATLAS = "ui-hud-minimap-calendar-button"
+local PLATE_RIM = 3                      -- px of bronze rim left showing
+local PLATE_FILL = { 0.06, 0.05, 0.04 }  -- the plate's dark inside
+
+function ns.AddButtonPlate(frame)
+    local atlas = C_Texture.GetAtlasInfo(PLATE_ATLAS) and PLATE_ATLAS
+    if not atlas then
+        local normal = GameTimeFrame and GameTimeFrame.GetNormalTexture and GameTimeFrame:GetNormalTexture()
+        atlas = normal and normal:GetAtlas()
+        if type(atlas) ~= "string" or (issecretvalue and issecretvalue(atlas)) then atlas = nil end
+    end
+    local plate = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
+    plate:SetAllPoints()
+    if atlas then plate:SetAtlas(atlas) end
+    local fill = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
+    fill:SetPoint("TOPLEFT", PLATE_RIM, -PLATE_RIM)
+    fill:SetPoint("BOTTOMRIGHT", -PLATE_RIM, PLATE_RIM)
+    fill:SetColorTexture(PLATE_FILL[1], PLATE_FILL[2], PLATE_FILL[3], 1)
+    return plate, fill
+end
+
+---------------------------------------------------------------------------
 -- Edit Mode: put a system frame back at its saved layout position. Edit Mode
 -- applies saved positions before our modules run; a frame whose clamp we relax
 -- afterwards (chat, minimap) stays where the old clamp pushed it. Re-applying

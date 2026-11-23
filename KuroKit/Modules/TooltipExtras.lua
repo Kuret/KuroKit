@@ -36,6 +36,8 @@ local INSPECT_CONFIG_ID = Constants and Constants.TraitConsts and Constants.Trai
 local INSPECT_THROTTLE = 1.5   -- seconds between our inspect requests
 local CACHE_SECONDS = 300      -- how long a player's spec stays cached
 
+local QUESTIE_WAIT = 60 -- seconds to wait for Questie's start before adding the last lines anyway
+
 local function Secret(v) return issecretvalue and issecretvalue(v) end
 local function Plain(v)
     if v == nil or Secret(v) then return nil end
@@ -423,12 +425,19 @@ local function OnUnitTooltip(tooltip)
         ColorLines(tooltip, unit, true)
         GuildLine(tooltip, unit)
         AddSpecLine(tooltip, unit)
-        AddTargetLine(tooltip, unit)
-        if AurasReadable() then AddAuraLines(tooltip, unit) end
     else
         ColorLines(tooltip, unit, false)
-        AddTargetLine(tooltip, unit)
     end
+end
+
+-- The target line and buff icons go last: after other addons' unit lines too
+-- (Questie's quest objectives), see M:OnEnable.
+local function OnUnitTooltipEnd(tooltip)
+    if (tooltip ~= GameTooltip and tooltip ~= ns.targetTooltip) or tooltip:IsForbidden() then return end
+    local _, unit = tooltip:GetUnit()
+    if not unit or Secret(unit) then return end
+    AddTargetLine(tooltip, unit)
+    if UnitIsPlayer(unit) and AurasReadable() then AddAuraLines(tooltip, unit) end
 end
 
 local function OnItemTooltip(tooltip, data)
@@ -456,4 +465,24 @@ function M:OnEnable()
         ns.safecall(OnItemTooltip, tooltip, data)
     end)
     ns:On("INSPECT_READY", OnInspectReady)
+
+    -- Post-calls run in the order they were added. Questie adds its quest
+    -- lines once it has started (after login), so with Questie the target
+    -- line and buffs are added once Questie says it's ready, to come after
+    -- its lines (or after QUESTIE_WAIT seconds, should it never get there).
+    local added = false
+    local function AddEnd()
+        if added then return end
+        added = true
+        TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(tooltip)
+            ns.safecall(OnUnitTooltipEnd, tooltip)
+        end)
+    end
+    local questie = Questie and Questie.API
+    if questie and type(questie.RegisterOnReady) == "function" then
+        questie.RegisterOnReady(AddEnd)
+        C_Timer.After(QUESTIE_WAIT, AddEnd)
+    else
+        AddEnd()
+    end
 end

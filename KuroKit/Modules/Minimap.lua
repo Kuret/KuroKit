@@ -37,7 +37,9 @@ local M = ns:NewModule("Minimap", {
         .. "Mouse wheel zooms; left-click the clock for the calendar, right-click for the stopwatch and alarm. Size and position stay in Edit Mode.",
 })
 
-local SQUARE_MASK = "Interface\\Buttons\\WHITE8X8"
+-- Spelled as Questie's waypoint lines compare it (file paths aren't case
+-- sensitive, Lua strings are): they then know the map is square.
+local SQUARE_MASK = "Interface\\BUTTONS\\WHITE8X8"
 -- Text and icon distance from the map's edges, clear of the rim.
 local PAD = { top = 6, side = 8, bottom = 8 }
 local HOVER_INTERVAL = 0.1
@@ -235,6 +237,7 @@ end
 ---------------------------------------------------------------------------
 local overlay, zoneText, fpsText, clockButton, clockText, coordsText, hoverWatch
 local hoverIcons = {}
+local ICON_GAP = 2 -- px between the hover row's buttons
 
 local MAIL_SCALE = 0.8 -- Blizzard's mail icon is large next to the FPS text
 local MAIL_GAP = 6     -- FPS text to the mail icon
@@ -248,19 +251,41 @@ local function PlaceMail()
     indicator:SetFrameLevel(Minimap:GetFrameLevel() + 10)
 end
 
+-- What a hover icon looks like on screen: the tracking frame is a 17 px
+-- holder with its 23 px button centred on it, so the button's size counts.
+local function VisibleSize(icon)
+    local shown = (icon == MinimapCluster.Tracking and icon.Button) or icon
+    return shown:GetSize()
+end
+
+-- The addon menu button gets the calendar's plate (Forever draws it with its
+-- own, slightly different art): its art faded out, the plate under its count.
+local function RestyleAddonButton()
+    local button = AddonCompartmentFrame
+    if not button then return end
+    for _, region in ipairs({ button:GetRegions() }) do
+        if region:IsObjectType("Texture") and region:GetDrawLayer() ~= "HIGHLIGHT" then region:SetAlpha(0) end
+    end
+    ns.AddButtonPlate(button)
+    if GameTimeFrame then button:SetSize(GameTimeFrame:GetSize()) end
+end
+
+-- Left to right, each centred on the row by its visible size, ICON_GAP apart.
 local function PlaceIcons()
     local cluster = MinimapCluster
     local level = Minimap:GetFrameLevel() + 10
-    local previous
+    local rowHeight = 0
     for _, icon in ipairs(hoverIcons) do
+        local _, h = VisibleSize(icon)
+        rowHeight = math.max(rowHeight, h)
+    end
+    local x, y = PAD.side - 3, PAD.bottom - 3 + rowHeight / 2
+    for _, icon in ipairs(hoverIcons) do
+        local w = VisibleSize(icon)
         icon:ClearAllPoints()
-        if previous then
-            icon:SetPoint("LEFT", previous, "RIGHT", 2, 0)
-        else
-            icon:SetPoint("BOTTOMLEFT", Minimap, "BOTTOMLEFT", PAD.side - 3, PAD.bottom - 3)
-        end
+        icon:SetPoint("CENTER", Minimap, "BOTTOMLEFT", x + w / 2, y)
         icon:SetFrameLevel(level)
-        previous = icon
+        x = x + w + ICON_GAP
     end
     PlaceMail()
     if cluster.Tracking and cluster.Tracking.Button then cluster.Tracking.Button:SetFrameLevel(level + 1) end
@@ -539,6 +564,17 @@ local function CollectButtons()
 end
 
 ---------------------------------------------------------------------------
+-- Another module's button joins the hover row, after the calendar (the quest
+-- tracker's toggle). false while the square minimap isn't running.
+function M.AddHoverIcon(icon)
+    if not hoverWatch then return false end
+    hoverIcons[#hoverIcons + 1] = icon
+    PlaceIcons()
+    icon:SetAlpha(hoverWatch:IsShown() and 1 or 0)
+    icon:HookScript("OnEnter", Reveal)
+    return true
+end
+
 function M:OnEnable()
     if not (MinimapCluster and Minimap and MinimapCompassTexture) then return end
     local cluster = MinimapCluster
@@ -553,7 +589,14 @@ function M:OnEnable()
         if icon then hoverIcons[#hoverIcons + 1] = icon end
     end
 
+    -- The shared convention for a square minimap (HereBeDragons pins in Questie,
+    -- Polestar's pins, LibDBIcon): without it they assume a round map and pull
+    -- edge and corner pins onto a circle. Left alone if another addon set one.
+    if GetMinimapShape == nil then
+        _G.GetMinimapShape = function() return "SQUARE" end -- a deliberate global (the convention)
+    end
     ApplySquare()
+    RestyleAddonButton()
     BuildRim()
     ConcealBlizzard()
     BuildText()

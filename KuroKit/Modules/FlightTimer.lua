@@ -124,14 +124,6 @@ local function SetAtlasFrom(texture, useSize, ...)
     return false
 end
 
--- A thin outline on top of the font's shadow: the text floats over the world,
--- so it has to stay readable on bright backgrounds too.
-local function Outline(fs)
-    local file, size = fs:GetFont()
-    if file then fs:SetFont(file, size, "OUTLINE") end
-    fs:SetShadowOffset(2, -2)
-    fs:SetShadowColor(0, 0, 0, 1)
-end
 
 local function BuildBar()
     bar = CreateFrame("StatusBar", nil, UIParent)
@@ -168,8 +160,8 @@ local function BuildBar()
     bar.text:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", 0, 6)
     bar.time = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     bar.time:SetPoint("BOTTOMRIGHT", bar, "TOPRIGHT", 0, 6)
-    Outline(bar.text)
-    Outline(bar.time)
+    ns.OutlineText(bar.text)
+    ns.OutlineText(bar.time)
     bar:Hide()
 end
 

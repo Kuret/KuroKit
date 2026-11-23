@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: KuroKit
 ## Notes: Personal all-in-one addon: only the features actually used, nothing else.
-## Version: 0.6.0
+## Version: 0.6.1
 ## X-License: MIT
 ## SavedVariables: KuroKitDB
 ## Category: Interface Enhancements

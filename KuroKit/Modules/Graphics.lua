@@ -93,13 +93,26 @@ local M = ns:NewModule("Graphics", {
     title = "Graphics",
     group = "General",
     alwaysOn = true,
-    desc = "Graphics settings Blizzard's menu doesn't offer: always-on sharpening and HDR output with its tuning.",
+    desc = "Graphics settings Blizzard's menu doesn't offer: always-on sharpening and HDR output with its tuning. Takes over EllesmereUI's UI scale once (into the game's UI Scale setting).",
     options = options,
 })
 
 -- Defaults applied once, the first time KuroKit runs; after that the
 -- checkboxes and sliders (the game's own settings) decide.
 function M:OnEnable()
+    -- UI scale (replaces EllesmereUI's fixed scale, which it sets on the UI
+    -- directly with the game's own setting off): taken over once, while
+    -- EllesmereUI is still installed, into the game's UI Scale setting
+    -- (Options > Graphics), which keeps it from then on.
+    if not self.db.uiScaleTaken then
+        local eui = rawget(_G, "EllesmereUIDB")
+        local scale = type(eui) == "table" and tonumber(eui.ppUIScale)
+        if scale and scale > 0 then
+            self.db.uiScaleTaken = true
+            SetCVar("useUiScale", "1")
+            SetCVar("uiScale", tostring(scale))
+        end
+    end
     if not self.db.sharpenSeeded then
         self.db.sharpenSeeded = true
         setSharpen(true)

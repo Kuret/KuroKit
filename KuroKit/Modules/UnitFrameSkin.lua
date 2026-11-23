@@ -11,8 +11,10 @@
 --   * the level in the nameplates' level box at the block's bottom corner
 --     (the skull for bosses too); no round level badge
 --   * no frame ring / name banner art (the health bar shows the reaction colour)
---   * the target-of-target frames in a small version of the same look; the
---     target's auras just below (or above) the block
+--   * the target-of-target, pet and party frames in smaller versions of the
+--     same look, the boss frames without a portrait; the target-of-target
+--     beside the target's portrait, the target's auras and cast bar under its
+--     block
 --
 -- How: Blizzard's frames, portraits and bars stay (Edit Mode, clicks, menus,
 -- vehicle handling all keep working). Its frame art is faded to alpha 0, the
@@ -27,7 +29,7 @@ local _, ns = ...
 local M = ns:NewModule("UnitFrameSkin", {
     title = "Unit Frame Skin",
     group = "Interface",
-    desc = "Player, target and focus frames as one block: a square portrait and taller health and mana bars "
+    desc = "Player, target, focus, pet, party and boss frames as one block: a square portrait and taller health and mana bars "
         .. "in a bronze-lined plate, with the level in a small box (Blizzard's frames underneath; Edit Mode as usual).",
 })
 
@@ -37,13 +39,20 @@ local M = ns:NewModule("UnitFrameSkin", {
 -- with the line between them); nameGap = name to block.
 local METRICS = {
     full = { edge = 24, top = 30, width = 124, health = 24, mana = 14, nameGap = 3 },
-    small = { edge = 5, top = 14, width = 70, health = 14, mana = 7, nameGap = 2 },
+    small = { edge = 5, top = 14, width = 70, health = 14, mana = 7, nameGap = 2 },   -- target of target, pet
+    party = { edge = 6, top = 14, width = 84, health = 16, mana = 8, nameGap = 2 },
+    boss = { edge = 24, top = 30, width = 124, health = 20, mana = 10, nameGap = 3 }, -- no portrait
 }
 -- Blizzard anchors the target / focus auras to its frame art (here faded
 -- out) at these offsets; the art is moved so the auras sit AURA_GAP clear
 -- of the block (below it, or above with "buffs on top").
 local AURA_START_X, AURA_START_Y, AURA_MIRRORED_START_Y = 5, 9, -6
 local AURA_GAP = 4
+-- Target / focus: the target-of-target frame beside the block (TOT_GAP right
+-- of the portrait, its block level with this one), and the cast bar under the
+-- block, or under the auras below it, as wide as the block.
+local TOT_GAP = 8
+local CAST_GAP = 6
 -- The plate behind portrait and bars, as Forever frames its nameplate bars
 -- and level box (sizes in screen pixels): a black outline, a bronze line
 -- lighter at the top, and a dark rim round each cell, all with rounded
@@ -182,13 +191,39 @@ local function Parts(kind)
             name = tot and tot.Name,
         }
     end
-    local frame = kind == "target" and TargetFrame or FocusFrame
+    if kind == "pet" then
+        return {
+            frame = PetFrame, unit = "pet", side = "LEFT", small = true, fitHitRect = true,
+            portrait = PetPortrait, mask = PetFrame and PetFrame.PortraitMask,
+            art = { PetFrameTexture, PetFrameFlash, PetAttackModeTexture },
+            health = PetFrameHealthBar, healthBar = PetFrameHealthBar, healthMask = PetFrameHealthBarMask,
+            mana = PetFrameManaBar, manaMask = PetFrameManaBarMask, name = PetName,
+        }
+    end
+    local partyIndex = kind:match("^party(%d)$")
+    if partyIndex then
+        local member = PartyFrame and PartyFrame["MemberFrame" .. partyIndex]
+        local health = member and member.HealthBarContainer
+        local overlay = member and member.PartyMemberOverlay
+        return {
+            frame = member, unit = kind, side = "LEFT", metrics = "party", fitHitRect = true,
+            portrait = member and member.Portrait, mask = member and member.PortraitMask,
+            art = { member and member.Texture, member and member.VehicleTexture, member and member.Flash,
+                overlay and overlay.Status },
+            health = health, healthBar = health and health.HealthBar,
+            healthMask = health and health.HealthBar and health.HealthBar.HealthBarMask,
+            mana = member and member.ManaBar, manaMask = member and member.ManaBar and member.ManaBar.ManaBarMask,
+            name = member and member.Name,
+        }
+    end
+    local bossIndex = kind:match("^boss(%d)$")
+    local frame = bossIndex and _G["Boss" .. bossIndex .. "TargetFrame"] or (kind == "target" and TargetFrame or FocusFrame)
     local container = frame and frame.TargetFrameContainer
     local main = Path(frame, "TargetFrameContent", "TargetFrameContentMain")
     local contextual = Path(frame, "TargetFrameContent", "TargetFrameContentContextual")
     local health = main and main.HealthBarsContainer
     local mana = main and main.ManaBar
-    return {
+    local parts = {
         frame = frame, unit = kind, side = "RIGHT",
         portrait = container and container.Portrait, mask = container and container.PortraitMask,
         art = { container and container.FrameTexture, container and container.Flash },
@@ -200,7 +235,14 @@ local function Parts(kind)
         mana = mana, manaMask = mana and mana.ManaBarMask,
         level = main and main.LevelText, badge = main and main.LevelBackgroundCircle,
         skull = contextual and contextual.HighLevelTexture, name = main and main.Name,
+        tot = frame and frame.totFrame, totKind = kind .. "tot", spellbar = frame and frame.spellbar,
     }
+    if bossIndex then
+        -- Boss frames: no portrait (Blizzard hides it), no auras, no ToT.
+        parts.noPortrait, parts.metrics, parts.tot, parts.auraAnchor = true, "boss", nil, nil
+        parts.art.threat = frame and frame.threatIndicator
+    end
+    return parts
 end
 
 local skins = {}    -- [kind] = { parts, portraitBorder, ... }
@@ -220,11 +262,46 @@ local function Layout(skin)
     local ok, err = pcall(LayoutNow, skin)
     placing = false
     if not ok then error(err, 0) end
+    local totSkin = skin.parts.totKind and skins[skin.parts.totKind]
+    if totSkin and totSkin.built then Layout(totSkin) end
+end
+
+-- The target / focus cast bar under the block, or under the auras when they
+-- hang below it (as Blizzard anchors it to them), as wide as the block.
+local function PlaceCastBar(skin)
+    local p, plate = skin.parts, skin.plate
+    local bar = p.spellbar
+    if not (bar and plate and plate:GetNumPoints() > 0) then return end
+    local frame = p.frame
+    local container = frame.GetAuraContainer and frame:GetAuraContainer()
+    local below = false
+    if container and not frame.buffsOnTop then
+        local ok, rows = pcall(container.GetNumVisibleFlowLayoutLines, container)
+        below = ok and Plain(rows) and rows > 0
+    end
+    bar:ClearAllPoints()
+    if bar.castBarOnSide then
+        -- Boss frames, Edit Mode's "cast bar on the side": left of the block.
+        bar:SetPoint("RIGHT", plate, "LEFT", -CAST_GAP * 2, 0)
+        return
+    end
+    if below then
+        -- As Blizzard does before anchoring the bar to the auras.
+        if bar.AddForbiddenAspects and container.GetInheritableForbiddenAspects and Enum.ScriptObjectPropagationPath then
+            pcall(bar.AddForbiddenAspects, bar,
+                container:GetInheritableForbiddenAspects(Enum.ScriptObjectPropagationPath.Layout))
+        end
+        bar:SetPoint("TOPLEFT", container, "BOTTOMLEFT", 0, -CAST_GAP)
+    else
+        bar:SetPoint("TOPLEFT", plate, "BOTTOMLEFT", 0, -CAST_GAP)
+    end
+    local width = Plain(plate:GetWidth())
+    if width and width > 0 then bar:SetWidth(width / bar:GetScale()) end
 end
 
 function LayoutNow(skin)
     local p = skin.parts
-    local m = p.small and METRICS.small or METRICS.full
+    local m = METRICS[p.metrics or (p.small and "small" or "full")]
     local frame = p.frame
     local px = PixelUtil and PixelUtil.GetNearestPixelSize(1, frame:GetEffectiveScale(), 1) or 1
     if not px or px <= 0 then px = 1 end
@@ -233,8 +310,9 @@ function LayoutNow(skin)
     local R, D = PLATE_RING, PLATE_DIVIDER
     local healthHeight, manaHeight, barWidth = Pixels(m.health), Pixels(m.mana), Pixels(m.width)
     local size = healthHeight + D + manaHeight
-    local plateWidth, plateHeight = R + size + D + barWidth + R, R + size + R
-    local barsX, manaY = R + size + D, R + healthHeight + D
+    local portraitRoom = p.noPortrait and 0 or size + D
+    local plateWidth, plateHeight = R + portraitRoom + barWidth + R, R + size + R
+    local barsX, manaY = R + portraitRoom, R + healthHeight + D
     -- The block's top-left on a whole screen pixel (from the frame's).
     local frameWidth = Plain(frame:GetWidth()) or 232
     local left = p.side == "LEFT" and m.edge or frameWidth - m.edge - plateWidth * px
@@ -273,19 +351,22 @@ function LayoutNow(skin)
     plate.pixelHeight = plateHeight
     Draw(plate.outline, 0, 0, plateWidth, plateHeight)
     Draw(plate.bronze, 1, 1, plateWidth - 2, plateHeight - 2)
-    Draw(plate.rims[1], R - 1, R - 1, size + 2, size + 2)
+    for k = 1, #plate.rims[1] do plate.rims[1][k]:SetShown(not p.noPortrait) end
+    if not p.noPortrait then Draw(plate.rims[1], R - 1, R - 1, size + 2, size + 2) end
     Draw(plate.rims[2], barsX - 1, R - 1, barWidth + 2, healthHeight + 2)
     Draw(plate.rims[3], barsX - 1, manaY - 1, barWidth + 2, manaHeight + 2)
     ShadeBronze(skin)
     -- Portrait and bars in their cells.
-    Place(p.portrait, R, R, size, size)
-    if p.mask then
+    if not p.noPortrait then Place(p.portrait, R, R, size, size) end
+    if p.mask and not p.noPortrait then
         p.mask:SetTexture(SQUARE)
         p.mask:ClearAllPoints()
         p.mask:SetAllPoints(p.portrait)
     end
     Place(p.health, barsX, R, barWidth, healthHeight)
     Place(p.mana, barsX, manaY, barWidth, manaHeight)
+    if skin.healthBar then Place(skin.healthBar, barsX, R, barWidth, healthHeight) end
+    if skin.manaBar then Place(skin.manaBar, barsX, manaY, barWidth, manaHeight) end
     -- No resource bar (most NPCs): an empty grey bar in the mana cell.
     if skin.emptyMana then
         Place(skin.emptyMana, barsX, manaY, barWidth, manaHeight)
@@ -334,6 +415,25 @@ function LayoutNow(skin)
         p.pvp:ClearAllPoints()
         p.pvp:SetPoint("CENTER", plate, "TOP" .. side, 0, 0)
     end
+    -- The target of target beside the portrait (its own block level with
+    -- this one); offsets in its own scale.
+    if p.tot and p.side ~= "LEFT" then
+        local small = METRICS.small
+        local k = frame:GetEffectiveScale() / p.tot:GetEffectiveScale()
+        p.tot:ClearAllPoints()
+        p.tot:SetPoint("TOPLEFT", frame, "TOPLEFT", (ox + plateWidth * px + TOT_GAP) * k - small.edge,
+            -(oy * k - small.top))
+    end
+    PlaceCastBar(skin)
+    -- Small frames click where the block is (Blizzard's click area fits its
+    -- own art).
+    if p.fitHitRect and not InCombatLockdown() then
+        local frameHeight = Plain(frame:GetHeight())
+        if frameHeight then
+            frame:SetHitRectInsets(math.max(0, ox), math.max(0, frameWidth - ox - plateWidth * px),
+                math.max(0, oy - m.health), math.max(0, frameHeight - oy - plateHeight * px))
+        end
+    end
 end
 
 -- The plate's bronze: gold for elites and bosses, silver for rares.
@@ -356,62 +456,44 @@ end
 -- clicks), but places and shades its fill its own way per frame; so its fill
 -- and texts are faded out and an own StatusBar on top shows the same values
 -- (copied from every SetValue / SetMinMaxValues; secret values pass through)
--- in the nameplates' art, with copies of Blizzard's health / power texts.
+-- in the nameplates' art, with its own texts (percentage left, value right).
 ---------------------------------------------------------------------------
+-- Blizzard's bar texts (all hidden: the bars write their own).
 local TEXT_KEYS = { "LeftText", "RightText", "TextString", "HealthBarText", "ManaBarText" }
+local BAR_TEXT_FONT = "TextStatusBarText" -- Blizzard's bar text font
+local BAR_TEXT_INSET = 4
 
--- A copy of one of Blizzard's bar texts on our bar: same font and spot, its
--- text and shown state kept in step; Blizzard's own faded out.
-local function CopyText(source, bar)
-    if not source or not source.GetText then return end
-    local copy = bar.texts:CreateFontString(nil, "OVERLAY")
-    local font = source:GetFontObject()
-    if font then copy:SetFontObject(font) else copy:SetFont(source:GetFont()) end
-    copy:SetTextColor(source:GetTextColor())
-    copy:SetShadowOffset(source:GetShadowOffset())
-    copy:SetShadowColor(source:GetShadowColor())
-    copy:SetJustifyH(source:GetJustifyH())
-    -- Its anchor as far as it can be read (an unset or unreadable one: centred).
-    local ok, point, _, relativePoint, x, y = pcall(source.GetPoint, source, 1)
-    local function Anchor(v) if ok and type(v) == "string" and not Secret(v) then return v end end
-    point, relativePoint = Anchor(point), Anchor(relativePoint)
-    if not pcall(copy.SetPoint, copy, point or "CENTER", bar, relativePoint or point or "CENTER",
-        ok and Plain(x) or 0, ok and Plain(y) or 0) then
-        copy:ClearAllPoints()
-        copy:SetPoint("CENTER", bar, "CENTER")
-    end
-    copy:SetText(source:GetText())
-    copy:SetShown(source:IsShown())
-    hooksecurefunc(source, "SetText", function(_, text) copy:SetText(text) end)
-    hooksecurefunc(source, "SetFormattedText", function(self) copy:SetText(self:GetText()) end)
-    hooksecurefunc(source, "Show", function() copy:Show() end)
-    hooksecurefunc(source, "Hide", function() copy:Hide() end)
-    hooksecurefunc(source, "SetShown", function(_, shown) copy:SetShown(shown) end)
-    Conceal(source)
-end
-
--- An own bar covering Blizzard's `source` bar; its texts come from
--- `textOwner` (the container for health, the bar itself for mana).
-local function OwnBar(source, parent, textOwner)
-    -- On the unit frame (not inside Blizzard's bar, which cuts off what
-    -- reaches past it: the background's edge), shown along with it.
+-- An own bar in the nameplates' fill. It is placed in its cell by the layout
+-- (not on Blizzard's bar, which Blizzard moves again at times) and shown
+-- along with Blizzard's `source`, whose values it copies. `small` bars (the
+-- target of target) have no texts; the others show the percentage on the left
+-- and the value on the right, written by `onValue` after every value change.
+local function OwnBar(source, parent, textOwner, small)
     local bar = CreateFrame("StatusBar", nil, parent)
-    bar:SetAllPoints(source)
     bar:SetFrameLevel(source:GetFrameLevel() + 2)
     bar:SetShown(source:IsShown())
     source:HookScript("OnShow", function() bar:Show() end)
     source:HookScript("OnHide", function() bar:Hide() end)
     bar:SetStatusBarTexture(BAR_TEXTURE)
     bar:GetStatusBarTexture():SetAtlas(BAR_FILL_ATLAS)
-    -- Texts above the fill.
-    bar.texts = CreateFrame("Frame", nil, bar)
-    bar.texts:SetAllPoints(bar)
-    bar.texts:SetFrameLevel(bar:GetFrameLevel() + 1)
+    if not small then
+        -- Texts above the fill.
+        bar.texts = CreateFrame("Frame", nil, bar)
+        bar.texts:SetAllPoints(bar)
+        bar.texts:SetFrameLevel(bar:GetFrameLevel() + 1)
+        bar.left = bar.texts:CreateFontString(nil, "OVERLAY", BAR_TEXT_FONT)
+        bar.left:SetPoint("LEFT", bar, "LEFT", BAR_TEXT_INSET, 0)
+        bar.left:SetJustifyH("LEFT")
+        bar.right = bar.texts:CreateFontString(nil, "OVERLAY", BAR_TEXT_FONT)
+        bar.right:SetPoint("RIGHT", bar, "RIGHT", -BAR_TEXT_INSET, 0)
+        bar.right:SetJustifyH("RIGHT")
+    end
+    local function Changed() if bar.onValue then bar.onValue() end end
     -- Same values as Blizzard's bar.
     bar:SetMinMaxValues(source:GetMinMaxValues())
     bar:SetValue(source:GetValue())
-    hooksecurefunc(source, "SetMinMaxValues", function(_, low, high) bar:SetMinMaxValues(low, high) end)
-    hooksecurefunc(source, "SetValue", function(_, value) bar:SetValue(value) end)
+    hooksecurefunc(source, "SetMinMaxValues", function(_, low, high) bar:SetMinMaxValues(low, high); Changed() end)
+    hooksecurefunc(source, "SetValue", function(_, value) bar:SetValue(value); Changed() end)
     -- Blizzard's fill and texts out of sight.
     local fill = source:GetStatusBarTexture()
     if fill then Conceal(fill) end
@@ -419,8 +501,57 @@ local function OwnBar(source, parent, textOwner)
         local newFill = self:GetStatusBarTexture()
         if newFill then Conceal(newFill) end
     end)
-    for _, key in ipairs(TEXT_KEYS) do CopyText(textOwner[key], bar) end
+    for _, owner in ipairs({ textOwner, source }) do
+        for _, key in ipairs(TEXT_KEYS) do
+            if type(owner[key]) == "table" then Conceal(owner[key]) end
+        end
+    end
     return bar
+end
+
+-- A health / power value: with thousands separators as Blizzard writes it; a
+-- secret one abbreviated, or plain.
+local function ValueText(fs, value)
+    if not Secret(value) then
+        fs:SetText(BreakUpLargeNumbers and BreakUpLargeNumbers(value) or tostring(value))
+    elseif not (AbbreviateNumbers and pcall(function() fs:SetText(AbbreviateNumbers(value)) end)) then
+        fs:SetFormattedText("%d", value)
+    end
+end
+
+local function PercentText(fs, percent, value, max)
+    if percent ~= nil then
+        fs:SetFormattedText("%.0f%%", percent)
+    elseif Plain(value) and Plain(max) and max > 0 then
+        fs:SetFormattedText("%.0f%%", value / max * 100)
+    else
+        fs:SetText("")
+    end
+end
+
+local function Scale100()
+    return CurveConstants and CurveConstants.ScaleTo100
+end
+
+local function HealthText(skin)
+    local bar, unit = skin.healthBar, skin.parts.unit
+    if not (bar and bar.left) then return end
+    if not UnitExists(unit) then bar.left:SetText(""); bar.right:SetText("") return end
+    local percent = UnitHealthPercent and Scale100() and UnitHealthPercent(unit, nil, Scale100())
+    PercentText(bar.left, percent, UnitHealth(unit), UnitHealthMax(unit))
+    ValueText(bar.right, UnitHealth(unit))
+end
+
+local function PowerText(skin)
+    local bar, unit = skin.manaBar, skin.parts.unit
+    if not (bar and bar.left) then return end
+    if not UnitExists(unit) then bar.left:SetText(""); bar.right:SetText("") return end
+    -- (UnitPowerPercent's arguments differ between clients: read in a pcall.)
+    local ok, percent = false, nil
+    if UnitPowerPercent and Scale100() then ok, percent = pcall(UnitPowerPercent, unit, nil, false, Scale100()) end
+    if not ok then percent = nil end
+    PercentText(bar.left, percent, UnitPower(unit), UnitPowerMax(unit))
+    ValueText(bar.right, UnitPower(unit))
 end
 
 local function HealthColor(skin)
@@ -464,7 +595,7 @@ end
 local function SquarePortrait(frame)
     for kind, skin in pairs(skins) do
         local p = skin.parts
-        if kind ~= "player" and p.frame == frame and p.portrait and UnitExists(p.unit) then
+        if kind ~= "player" and not p.noPortrait and p.frame == frame and p.portrait and UnitExists(p.unit) then
             SetPortraitTexture(p.portrait, p.unit, true)
         end
     end
@@ -474,13 +605,15 @@ local function Refresh(skin)
     UpdateClassification(skin)
     HealthColor(skin)
     ManaColor(skin)
+    HealthText(skin)
+    PowerText(skin)
     if skin.parts.unit ~= "player" then SquarePortrait(skin.parts.frame) end
     if skin.mirrorLevel then skin.mirrorLevel() end
 end
 
 local function Build(skin)
     local p = skin.parts
-    for _, region in ipairs(p.art) do Conceal(region) end
+    for _, region in pairs(p.art) do Conceal(region) end -- (pairs: some may be missing)
     Conceal(p.badge)
     ConcealColor(p.nameBand)
     -- Mana bar shown / hidden (NPCs without mana): the empty track takes its place.
@@ -490,6 +623,16 @@ local function Build(skin)
         hooksecurefunc(p.pvp, "SetPoint", function()
             if not placing then Layout(skin) end
         end)
+    end
+    -- Blizzard re-anchors the ToT (focus size) and the cast bar (each cast,
+    -- aura changes): put them back.
+    if p.tot then
+        hooksecurefunc(p.tot, "SetPoint", function()
+            if not placing then Layout(skin) end
+        end)
+    end
+    if p.spellbar and type(p.spellbar.AdjustPosition) == "function" then
+        hooksecurefunc(p.spellbar, "AdjustPosition", function() PlaceCastBar(skin) end)
     end
     -- The plate below the portrait and the bars.
     local container = p.frame.TargetFrameContainer or p.frame.PlayerFrameContainer or p.frame
@@ -561,11 +704,13 @@ local function Build(skin)
     -- Own bars over Blizzard's (see OwnBar), recoloured whenever Blizzard
     -- colours its own.
     if p.healthBar then
-        skin.healthBar = OwnBar(p.healthBar, p.frame, p.health)
+        skin.healthBar = OwnBar(p.healthBar, p.frame, p.health, p.small)
+        skin.healthBar.onValue = function() HealthText(skin) end
         hooksecurefunc(p.healthBar, "SetStatusBarColor", function() HealthColor(skin) end)
     end
     if p.mana then
-        skin.manaBar = OwnBar(p.mana, p.frame, p.mana)
+        skin.manaBar = OwnBar(p.mana, p.frame, p.mana, p.small)
+        skin.manaBar.onValue = function() PowerText(skin) end
         hooksecurefunc(p.mana, "SetStatusBarColor", function() ManaColor(skin) end)
     end
     -- Shown instead of the mana bar when the unit has none: an empty bar,
@@ -713,13 +858,23 @@ function M:OnSlash(args)
 end
 
 function M:OnEnable()
-    local FRAMES = { player = PlayerFrame, target = TargetFrame, focus = FocusFrame,
-        targettot = TargetFrameToT, focustot = FocusFrameToT }
-    for _, kind in ipairs({ "player", "target", "focus", "targettot", "focustot" }) do
+    local KINDS = { "player", "target", "focus", "targettot", "focustot", "pet" }
+    for i = 1, 4 do KINDS[#KINDS + 1] = "party" .. i end
+    for i = 1, 5 do KINDS[#KINDS + 1] = "boss" .. i end
+    for _, kind in ipairs(KINDS) do
         ns.safecall(Skin, kind)
-        local frame = FRAMES[kind]
+        local frame = Parts(kind).frame
         if frame then frame:HookScript("OnShow", function() ns.safecall(Skin, kind) end) end
     end
+    ns:On("UNIT_PET", function(_, unit)
+        if unit == "player" then ns.safecall(Skin, "pet") end
+    end)
+    ns:On("GROUP_ROSTER_UPDATE", function()
+        for i = 1, 4 do ns.safecall(Skin, "party" .. i) end
+    end)
+    ns:On("INSTANCE_ENCOUNTER_ENGAGE_UNIT", function()
+        for i = 1, 5 do ns.safecall(Skin, "boss" .. i) end
+    end)
     -- Blizzard's own art updates put the bars back: lay them out again.
     for _, name in ipairs({ "PlayerFrame_ToPlayerArt", "PlayerFrame_UpdateHealthBarVisuals", "PlayerFrame_UpdateManaBarVisuals" }) do
         if _G[name] then hooksecurefunc(name, function() ns.safecall(Skin, "player") end) end

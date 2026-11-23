@@ -112,6 +112,8 @@ end
 -- frame, never Blizzard's FCF_* functions or fields).
 ---------------------------------------------------------------------------
 local movedButtons = {}
+local ALERT_ABOVE_BUTTONS = 27                  -- Blizzard's toast spot above the buttons
+local ALERT_ABOVE_CHAT = ALERT_ABOVE_BUTTONS - 3 -- the same height (the buttons start 3 below the chat's top)
 
 local function AnchorButtons(frame, side)
     local buttons, bg = frame.buttonFrame, frame.Background
@@ -154,6 +156,17 @@ local function ApplyScreenEdge()
                 elseif movedButtons[buttons] then
                     AnchorButtons(frame, frame.buttonSide == "right" and "right" or "left")
                     movedButtons[buttons] = nil
+                end
+                -- Toasts (Battle.net, Quick Join) sit above the main chat's
+                -- button column: with the buttons moved right, above the chat's
+                -- own left edge instead (at the screen edge, as before).
+                if frame == DEFAULT_CHAT_FRAME and ChatAlertFrame then
+                    ChatAlertFrame:ClearAllPoints()
+                    if movedButtons[buttons] then
+                        ChatAlertFrame:SetPoint("BOTTOMLEFT", frame.Background, "TOPLEFT", 0, ALERT_ABOVE_CHAT)
+                    else
+                        ChatAlertFrame:SetPoint("BOTTOMLEFT", buttons, "TOPLEFT", 0, ALERT_ABOVE_BUTTONS)
+                    end
                 end
             end
         end

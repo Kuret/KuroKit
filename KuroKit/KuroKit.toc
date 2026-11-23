@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: KuroKit
 ## Notes: Personal all-in-one addon: only the features actually used, nothing else.
-## Version: 0.5.0
+## Version: 0.6.0
 ## X-License: MIT
 ## SavedVariables: KuroKitDB
 ## Category: Interface Enhancements
@@ -35,3 +35,7 @@ Modules\Windows.lua
 Modules\QuickLoot.lua
 Modules\LootFeed.lua
 Modules\QuestTracker.lua
+Modules\UnitFrames.lua
+Modules\CastBars.lua
+Modules\UnitFrameSkin.lua
+Modules\FrameFade.lua

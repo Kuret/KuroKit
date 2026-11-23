@@ -222,13 +222,25 @@ local function OnSkill(_, text)
     end)
 end
 
+-- Gold / silver / copper with coin icons (the coin function lives in
+-- C_CurrencyInfo on this client; older names and a plain fallback after it).
+local function CoinText(copper)
+    local format = (C_CurrencyInfo and C_CurrencyInfo.GetCoinTextureString) or _G.GetCoinTextureString or _G.GetMoneyString
+    if format then return format(copper) end
+    local gold, silver = math.floor(copper / 10000), math.floor(copper / 100) % 100
+    local text = ""
+    if gold > 0 then text = gold .. "|TInterface\\MoneyFrame\\UI-GoldIcon:0:0:2:0|t " end
+    if silver > 0 then text = text .. silver .. "|TInterface\\MoneyFrame\\UI-SilverIcon:0:0:2:0|t " end
+    return text .. copper % 100 .. "|TInterface\\MoneyFrame\\UI-CopperIcon:0:0:2:0|t"
+end
+
 local function OnMoney()
     local money = GetMoney()
     local gained = lastMoney and money - lastMoney or 0
     lastMoney = money
     if gained <= 0 then return end
     Show("money", MONEY_ICON, gained, function(total)
-        return "|cffffffff" .. GetCoinTextureString(total) .. "|r"
+        return "|cffffffff" .. CoinText(total) .. "|r"
     end)
 end
 

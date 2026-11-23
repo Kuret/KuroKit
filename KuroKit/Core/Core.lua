@@ -19,6 +19,12 @@ end
 local reported = {}
 local function OnError(err)
     local msg = tostring(err)
+    -- Errors raised inside a game function (usage errors) carry no file:
+    -- add the first KuroKit line from the stack.
+    if not msg:find("AddOns/KuroKit/", 1, true) and debugstack then
+        local at = debugstack(2):match("AddOns/KuroKit/([^\n]-:%d+)")
+        if at then msg = msg .. " (at " .. at .. ")" end
+    end
     if not reported[msg] then
         reported[msg] = true
         print("|cffff5555KuroKit error:|r " .. msg)

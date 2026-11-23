@@ -41,7 +41,7 @@ local M = ns:NewModule("Nameplates", {
     title = "Nameplates",
     group = "Interface",
     desc = "Friendly players, NPCs and pets show only their name (class colour, NPC colours, pet blue) with the guild or "
-        .. "NPC title under it. Enemy cast bars show the spell, icon and target, health shows as number and percentage, "
+        .. "NPC title under it. Enemy cast bars show the spell, icon and target, health shows as percentage (left) and value (right), "
         .. "all your own debuffs show on enemies, and quest mobs show your objective progress next to the health bar.",
 })
 
@@ -554,6 +554,93 @@ local function HideQuest(frame)
     if box then box:Hide() end
 end
 
+---------------------------------------------------------------------------
+-- Health text: percentage at the bar's left end, value at its right (as on
+-- the unit frames). Blizzard's own text (both right-aligned in one spot) is
+-- faded out; ours follows Blizzard's nameplate setting for which of the two
+-- show (Interface > Nameplates, the health percentage / value options).
+-- Values that are secret go straight to the text calls that accept them.
+---------------------------------------------------------------------------
+local HEALTH_TEXT_INSET = 3 -- px from the bar's ends
+local healthTexts = setmetatable({}, { __mode = "k" }) -- [health bar] = { left, right }
+local hiddenText = setmetatable({}, { __mode = "k" })  -- [Blizzard's health text] = true
+
+local function HideBlizzardText(region)
+    if not region or hiddenText[region] then return end
+    hiddenText[region] = true
+    region:SetAlpha(0)
+    hooksecurefunc(region, "SetAlpha", function(self, alpha)
+        if alpha ~= 0 then self:SetAlpha(0) end
+    end)
+end
+
+local function HealthTexts(bar)
+    local texts = healthTexts[bar]
+    if texts then return texts end
+    local model = bar.Text or bar.TextString
+    texts = {}
+    for _, side in ipairs({ "LEFT", "RIGHT" }) do
+        local fs = bar:CreateFontString(nil, "OVERLAY")
+        local font = model and model:GetFontObject()
+        if font then
+            fs:SetFontObject(font)
+        elseif model and model:GetFont() then
+            fs:SetFont(model:GetFont())
+        else
+            fs:SetFontObject("SystemFont_NamePlate")
+        end
+        if model then
+            fs:SetShadowOffset(model:GetShadowOffset())
+            fs:SetShadowColor(model:GetShadowColor())
+            fs:SetTextColor(model:GetTextColor())
+        end
+        fs:SetPoint(side, bar, side, side == "LEFT" and HEALTH_TEXT_INSET or -HEALTH_TEXT_INSET, 0)
+        fs:SetJustifyH(side)
+        texts[side] = fs
+    end
+    HideBlizzardText(bar.Text)
+    HideBlizzardText(bar.TextString)
+    HideBlizzardText(bar.LeftText)
+    HideBlizzardText(bar.RightText)
+    healthTexts[bar] = texts
+    return texts
+end
+
+-- Which of the two Blizzard's nameplate setting shows.
+local function HealthTextWanted()
+    local I = Enum.NamePlateInfoDisplay
+    if not (I and C_CVar.GetCVarBitfield) then return true, true end
+    return C_CVar.GetCVarBitfield("nameplateInfoDisplay", I.CurrentHealthPercent),
+        C_CVar.GetCVarBitfield("nameplateInfoDisplay", I.CurrentHealthValue)
+end
+
+local function HealthValueText(fs, health)
+    if not Secret(health) then
+        fs:SetText(AbbreviateNumbers and AbbreviateNumbers(health) or tostring(health))
+    elseif not (AbbreviateNumbers and pcall(function() fs:SetText(AbbreviateNumbers(health)) end)) then
+        fs:SetFormattedText("%d", health)
+    end
+end
+
+local function UpdateHealthText(frame, unit)
+    local bar = frame.HealthBarsContainer and frame.HealthBarsContainer.healthBar
+    if not bar then return end
+    local texts = HealthTexts(bar)
+    local percentOn, valueOn = HealthTextWanted()
+    if percentOn and UnitHealthPercent and CurveConstants and CurveConstants.ScaleTo100 then
+        texts.LEFT:SetFormattedText("%.0f%%", UnitHealthPercent(unit, nil, CurveConstants.ScaleTo100))
+        texts.LEFT:Show()
+    else
+        texts.LEFT:Hide()
+    end
+    if valueOn then
+        HealthValueText(texts.RIGHT, UnitHealth(unit))
+        texts.RIGHT:Show()
+    else
+        texts.RIGHT:Hide()
+    end
+end
+
 local kindOf = setmetatable({}, { __mode = "k" })  -- [unitFrame] = kind for its current unit
 local classOf = setmetatable({}, { __mode = "k" }) -- [unitFrame] = class token for a player plate
 
@@ -646,6 +733,7 @@ local function OnPlateAdded(_, unit)
     frameOf[unit] = frame
     Refresh(frame, unit, true)
     UpdateQuest(frame, unit)
+    UpdateHealthText(frame, unit)
 end
 
 local function OnPlateRemoved(_, unit)
@@ -758,6 +846,17 @@ function M:OnEnable()
     hooksecurefunc("CompactUnitFrame_UpdateName", OnUpdateName)
     ns:On("NAME_PLATE_UNIT_ADDED", OnPlateAdded)
     ns:On("NAME_PLATE_UNIT_REMOVED", OnPlateRemoved)
+    local function OnHealth(_, unit)
+        local frame = frameOf[unit]
+        if frame then ns.safecall(UpdateHealthText, frame, unit) end
+    end
+    ns:On("UNIT_HEALTH", OnHealth)
+    ns:On("UNIT_MAXHEALTH", OnHealth)
+    ns:On("CVAR_UPDATE", function(_, cvar)
+        if type(cvar) == "string" and not Secret(cvar) and cvar == "nameplateInfoDisplay" then
+            for unit, frame in pairs(frameOf) do ns.safecall(UpdateHealthText, frame, unit) end
+        end
+    end)
     ns:On("UNIT_FACTION", function(_, unit)
         local frame = frameOf[unit]
         if frame then

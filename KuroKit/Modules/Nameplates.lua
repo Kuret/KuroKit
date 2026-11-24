@@ -10,6 +10,11 @@
 --   enemies            cast bars with spell name, icon and target, highlighted
 --                      when they target you or the cast is important; health
 --                      as number and percentage; all of your own debuffs
+--   your target        a bobbing arrow above its name
+--   threat             enemy plates get the target's selection border in
+--                      threat colours while they're on you (red), or you're
+--                      about to pull them (yellow / orange); your target
+--                      keeps Blizzard's own
 --   quest mobs         progress of the quest objective (8/10, or 45%) in a
 --                      box left of the health bar, like the level box; item
 --                      drops via Polestar's quest data; a class-coloured dot
@@ -718,6 +723,117 @@ local function QueueQuestRefresh()
     end
 end
 
+---------------------------------------------------------------------------
+-- Target marker: one arrow, moved to the target's plate (above its name).
+---------------------------------------------------------------------------
+local MARKER_ATLAS = "NPE_ArrowDown"
+local MARKER_HEIGHT = 18
+local MARKER_GAP = 2
+local MARKER_BOB = 4      -- px up and down
+local MARKER_BOB_TIME = 0.45
+local marker
+
+local function Marker()
+    if marker then return marker end
+    marker = CreateFrame("Frame", nil, UIParent)
+    marker:Hide()
+    local tex = marker:CreateTexture(nil, "OVERLAY")
+    tex:SetAllPoints()
+    local info = C_Texture.GetAtlasInfo(MARKER_ATLAS)
+    if info and info.height > 0 then
+        tex:SetAtlas(MARKER_ATLAS)
+        marker:SetSize(MARKER_HEIGHT * info.width / info.height, MARKER_HEIGHT)
+    else
+        tex:SetTexture("Interface/Minimap/MiniMap-QuestArrow")
+        tex:SetRotation(math.pi)
+        marker:SetSize(MARKER_HEIGHT, MARKER_HEIGHT)
+    end
+    marker.bob = marker:CreateAnimationGroup()
+    marker.bob:SetLooping("BOUNCE")
+    local move = marker.bob:CreateAnimation("Translation")
+    move:SetOffset(0, MARKER_BOB)
+    move:SetDuration(MARKER_BOB_TIME)
+    move:SetSmoothing("IN_OUT")
+    return marker
+end
+
+local function UpdateMarker()
+    local m = Marker()
+    local frame
+    for unit, f in pairs(frameOf) do
+        if Plain(UnitIsUnit(unit, "target")) then frame = f break end
+    end
+    if not frame then
+        m.bob:Stop()
+        m:Hide()
+        m:SetParent(UIParent)
+        return
+    end
+    m:SetParent(frame)
+    m:SetFrameLevel(frame:GetFrameLevel() + 10)
+    m:ClearAllPoints()
+    local name = frame.name
+    m:SetPoint("BOTTOM", (name and name:IsShown()) and name or frame.HealthBarsContainer or frame, "TOP", 0, MARKER_GAP)
+    m:Show()
+    m.bob:Play()
+end
+
+-- Threat: our own copy of the selection border (Blizzard's atlas, laid over
+-- Blizzard's selectedBorder, which keeps its anchors even while hidden), in
+-- GetThreatStatusColor's colour at threat status 1+. Not on your target: it
+-- shows Blizzard's. Blizzard re-runs its border update on every threat and
+-- target change; our own threat events too.
+local threatBorders = setmetatable({}, { __mode = "k" }) -- [health bar] = texture
+local function ThreatBorder(bar)
+    local border = threatBorders[bar]
+    if border or not bar.selectedBorder then return border end
+    border = bar:CreateTexture(nil, "OVERLAY", nil, 2)
+    local constants = NamePlateConstants
+    local atlas = constants and constants.SELECTED_BORDER_ATLAS
+    if atlas then
+        border:SetAtlas(atlas, TextureKitConstants and TextureKitConstants.IgnoreAtlasSize)
+    else
+        border:SetTexture(bar.selectedBorder:GetTexture())
+    end
+    border:SetAllPoints(bar.selectedBorder)
+    border:Hide()
+    threatBorders[bar] = border
+    return border
+end
+
+-- Threat values can be secret to addons (in combat, and solo Blizzard's own
+-- threat display is off): with a plain status the colour follows it; with a
+-- secret one the border is red and shown only while the enemy is on you
+-- (isTanking, a secret boolean, through SetAlphaFromBoolean).
+local THREAT_RED = { 1, 0.1, 0.1 }
+local function OnHealthBorder(frame)
+    if type(frame) ~= "table" or frame:IsForbidden() then return end
+    local unit = frame.unit
+    if type(unit) ~= "string" or Secret(unit) or unit:sub(1, 9) ~= "nameplate" then return end
+    local bar = frame.healthBar or (frame.HealthBarsContainer and frame.HealthBarsContainer.healthBar)
+    if not bar then return end
+    local isTanking, status
+    if Plain(UnitCanAttack("player", unit)) and not Plain(UnitIsUnit(unit, "target")) then
+        isTanking, status = UnitDetailedThreatSituation("player", unit)
+    end
+    if type(isTanking) == "nil" then
+        if threatBorders[bar] then threatBorders[bar]:Hide() end
+        return
+    end
+    local border = ThreatBorder(bar)
+    if not border then return end
+    if not Secret(status) and not Secret(isTanking) then
+        if not status or status < 1 then border:Hide() return end
+        local r, g, b = GetThreatStatusColor(status)
+        border:SetVertexColor(r, g, b)
+        border:SetAlpha(1)
+    else
+        border:SetVertexColor(THREAT_RED[1], THREAT_RED[2], THREAT_RED[3])
+        border:SetAlphaFromBoolean(isTanking, 1, 0)
+    end
+    border:Show()
+end
+
 -- After Blizzard set the name (and its colour): any nameplate update.
 local function OnUpdateName(frame)
     local unit = frame and frame.unit
@@ -734,6 +850,7 @@ local function OnPlateAdded(_, unit)
     Refresh(frame, unit, true)
     UpdateQuest(frame, unit)
     UpdateHealthText(frame, unit)
+    if Plain(UnitIsUnit(unit, "target")) then UpdateMarker() end
 end
 
 local function OnPlateRemoved(_, unit)
@@ -745,6 +862,7 @@ local function OnPlateRemoved(_, unit)
     HideTitle(frame)
     HideQuest(frame)
     SetNameScale(frame, 1)
+    if marker and marker:GetParent() == frame then UpdateMarker() end
 end
 
 -- /kk nameplates scale: every plate scale setting, to see what still grows.
@@ -867,8 +985,27 @@ function M:OnEnable()
     -- Your quest log, and group members' (UNIT_QUEST_LOG_CHANGED for party units).
     ns:On("QUEST_LOG_UPDATE", QueueQuestRefresh)
     ns:On("UNIT_QUEST_LOG_CHANGED", QueueQuestRefresh)
+    hooksecurefunc("CompactUnitFrame_UpdateHealthBorder", function(frame) ns.safecall(OnHealthBorder, frame) end)
+    -- Our own threat events too (they may name "target" or the player rather
+    -- than the plate): all plates, once per frame.
+    local threatQueued = false
+    local function OnThreat()
+        if threatQueued then return end
+        threatQueued = true
+        C_Timer.After(0, function()
+            threatQueued = false
+            for _, frame in pairs(frameOf) do ns.safecall(OnHealthBorder, frame) end
+        end)
+    end
+    ns:On("UNIT_THREAT_SITUATION_UPDATE", OnThreat)
+    ns:On("UNIT_THREAT_LIST_UPDATE", OnThreat)
+    ns:On("PLAYER_REGEN_DISABLED", OnThreat)
+    ns:On("PLAYER_REGEN_ENABLED", function()
+        for _, frame in pairs(frameOf) do ns.safecall(OnHealthBorder, frame) end
+    end)
     local function OnSelectionChanged()
         for unit, frame in pairs(frameOf) do UpdateSelected(frame, unit) end
+        UpdateMarker()
     end
     ns:On("PLAYER_TARGET_CHANGED", OnSelectionChanged)
     ns:On("PLAYER_FOCUS_CHANGED", OnSelectionChanged)

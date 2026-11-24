@@ -259,6 +259,8 @@ function M:OnEnable()
     ns:On("LOOT_OPENED", function() C_Timer.After(0, Layout) end)
     ns:On("LOOT_CLOSED", Layout)
     ns:On("EDIT_MODE_LAYOUTS_UPDATED", Layout)
-    -- Quick Loot fades the loot window in when something is left in it.
+    -- Quick Loot fades the loot window in when something is left in it, and
+    -- lists what bags were too full for here.
     if LootFrame then hooksecurefunc(LootFrame, "SetAlpha", Layout) end
+    ns.LootFeedShow = Show
 end

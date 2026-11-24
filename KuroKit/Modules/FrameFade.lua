@@ -5,6 +5,10 @@
 --   * the Cooldown Manager follows the same rules when Edit Mode has it set
 --     to show in combat only: out of combat it also shows while you have a
 --     target or the mouse is over its spot
+--   * the action bars fade to MOVING_ALPHA once you've been on the move for
+--     MOVING_DELAY out of combat (travelling: you're looking at the world),
+--     counted from AFTER_COMBAT after a fight at the earliest; they come back
+--     (slowly) STILL_DELAY after you stop, and at once when combat starts
 --
 -- How: the player frame is faded with SetAlpha (it stays clickable and in
 -- place; Edit Mode keeps positioning it). The Cooldown Manager bars are
@@ -12,25 +16,38 @@
 -- Show / Hide; they aren't protected), re-applied after Blizzard's own
 -- visibility update (a post-hook on UpdateShownState). Their spot is
 -- remembered from when they last showed, for the mouse-over check.
--- Cost: a cursor check 10 times a second.
+-- The action bars: SetAlpha on Blizzard's bar frames (not protected for
+-- alpha); moving is IsPlayerMoving (walking, running, riding).
+-- Cost: a cursor and movement check 10 times a second.
 local _, ns = ...
 
 local M = ns:NewModule("FrameFade", {
     title = "Frame Fading",
     group = "Interface",
     desc = "Your player frame fades out of combat and comes back while you have a target or hover its spot. The "
-        .. "Cooldown Manager, when Edit Mode shows it in combat only, also shows with a target or on hover.",
+        .. "Cooldown Manager, when Edit Mode shows it in combat only, also shows with a target or on hover. "
+        .. "The action bars fade while you've been on the move for a few seconds out of combat.",
 })
 
 local FADE_TIME = 0.2   -- seconds for a full fade
 local POLL = 0.1        -- seconds between cursor checks
 local VIEWERS = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
+local BARS = { "MainActionBar", "MultiBarBottomLeft", "MultiBarBottomRight", "MultiBarLeft", "MultiBarRight",
+    "MultiBar5", "MultiBar6", "MultiBar7", "StanceBar", "PetActionBar" }
+local MOVING_ALPHA = 0.2    -- action bars while travelling
+local MOVING_DELAY = 6.0    -- seconds of moving before they fade
+local AFTER_COMBAT = 10.0   -- seconds after a fight before moving counts
+local STILL_DELAY = 3.0     -- seconds standing still before they come back
+local MOVING_FADE_OUT = 1.0 -- seconds for the fade out
+local MOVING_FADE_IN = 0.8  -- and back in (combat: at once)
 
 local function Secret(v) return issecretvalue and issecretvalue(v) end
 local function Plain(v) if type(v) == "number" and not Secret(v) then return v end end
 
 local editing = false
 local alpha, wantedAlpha = 1, 1
+local barAlpha, wantedBarAlpha = 1, 1
+local movingSince, stillSince, combatAt
 local settingAlpha = false
 local driver = CreateFrame("Frame")
 local elapsedPoll = 0
@@ -118,11 +135,49 @@ local function UpdateViewers()
 end
 
 ---------------------------------------------------------------------------
+-- Action bars while turning the camera
+---------------------------------------------------------------------------
+local function SetBarsAlpha(value)
+    barAlpha = value
+    for _, name in ipairs(BARS) do
+        local bar = _G[name]
+        if bar then bar:SetAlpha(value) end
+    end
+end
+
+local function BarsWanted()
+    local now = GetTime()
+    if editing or InCombat() then
+        movingSince, stillSince = nil, nil
+        if InCombat() then
+            combatAt = now
+            if barAlpha ~= 1 then SetBarsAlpha(1) end -- at once
+        end
+        return 1
+    end
+    if IsPlayerMoving() then
+        movingSince, stillSince = movingSince or now, nil
+    else
+        stillSince = stillSince or now
+        if now - stillSince >= STILL_DELAY then movingSince = nil end
+    end
+    if not movingSince then return 1 end
+    local from = math.max(movingSince, combatAt and combatAt + AFTER_COMBAT or 0)
+    return now - from >= MOVING_DELAY and MOVING_ALPHA or 1
+end
+
+---------------------------------------------------------------------------
 -- Driver
 ---------------------------------------------------------------------------
 local function Update()
     wantedAlpha = PlayerWanted() and 1 or 0
+    wantedBarAlpha = BarsWanted()
     UpdateViewers()
+end
+
+local function Step(current, wanted, elapsed, fadeOutTime, fadeInTime)
+    local step = elapsed / ((wanted < current and fadeOutTime) or fadeInTime or FADE_TIME)
+    return wanted > current and math.min(wanted, current + step) or math.max(wanted, current - step)
 end
 
 driver:SetScript("OnUpdate", function(_, elapsed)
@@ -131,11 +186,8 @@ driver:SetScript("OnUpdate", function(_, elapsed)
         elapsedPoll = 0
         Update()
     end
-    if alpha ~= wantedAlpha then
-        local step = elapsed / FADE_TIME
-        local value = wantedAlpha > alpha and math.min(wantedAlpha, alpha + step) or math.max(wantedAlpha, alpha - step)
-        SetFrameAlpha(value)
-    end
+    if alpha ~= wantedAlpha then SetFrameAlpha(Step(alpha, wantedAlpha, elapsed)) end
+    if barAlpha ~= wantedBarAlpha then SetBarsAlpha(Step(barAlpha, wantedBarAlpha, elapsed, MOVING_FADE_OUT, MOVING_FADE_IN)) end
 end)
 
 function M:OnEnable()

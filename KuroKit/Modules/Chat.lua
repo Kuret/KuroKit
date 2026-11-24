@@ -18,6 +18,13 @@
 --    frame later, outside Blizzard's call chains.
 -- Note: the new-message flash on other tabs runs its own animation and may still
 -- blink while the rest is hidden.
+--
+-- Idle fade: the chat text fades to IDLE_ALPHA IDLE_TIME seconds after the
+-- last new message, hover or typing, and comes back with the next one. The chat
+-- frame's own alpha (Blizzard fades its background and tabs, never the frame
+-- itself). New messages are noticed by reading the newest entry's time in the
+-- frame's message buffer, read only: calling the frame's fade functions from
+-- an addon would write its fields and taint it.
 local _, ns = ...
 
 -- Default: 24-hour clock, hours and minutes. The game's own default is none;
@@ -40,7 +47,8 @@ end
 local M = ns:NewModule("Chat", {
     title = "Minimal Chat",
     group = "Chat & Map",
-    desc = "Only the chat text shows: tabs, buttons and the scroll bar appear while you hover the chat, and the background is gone.",
+    desc = "Only the chat text shows: tabs, buttons and the scroll bar appear while you hover the chat, and the background is gone. "
+        .. "The chat turns faint 30 seconds after the last message, hover or typing.",
     options = {
         { type = "dropdown", name = "Timestamps", default = DEFAULT_TIMESTAMPS,
           tooltip = "Time in front of each chat line (the game's own Chat Timestamps setting).",
@@ -271,6 +279,78 @@ local function BuildCopyButton()
 end
 
 ---------------------------------------------------------------------------
+-- Idle fade
+---------------------------------------------------------------------------
+local IDLE_TIME = 30     -- seconds without activity before the chat fades
+local IDLE_ALPHA = 0.5   -- the chat while idle (still readable)
+local IDLE_FADE = 1.5    -- seconds for the fade out (back in at once)
+local IDLE_POLL = 0.25
+local idleAlpha = setmetatable({}, { __mode = "k" }) -- [chat frame] = alpha we set
+local lastActivity = 0
+
+local function NewestMessage(frame)
+    local buffer = frame.historyBuffer
+    if not (buffer and buffer.GetNumElements and buffer.GetEntryAtIndex) then return 0 end
+    local n = buffer:GetNumElements()
+    if not n or n == 0 then return 0 end
+    local first, last = buffer:GetEntryAtIndex(1), buffer:GetEntryAtIndex(n)
+    return math.max(first and first.timestamp or 0, last and last.timestamp or 0)
+end
+
+local function Active(frame)
+    if frame:IsMouseOver() then return true end
+    local tab = _G[frame:GetName() .. "Tab"]
+    if tab and tab:IsShown() and tab:IsMouseOver() then return true end
+    local editBox = frame.editBox
+    return editBox and (editBox:HasFocus() or (editBox:IsShown() and editBox:GetText() ~= ""))
+end
+
+-- Every IDLE_POLL: is anything happening? (Sets idleWanted.)
+local idleWanted = 1
+local function IdleCheck()
+    local now = GetTime()
+    for _, name in ipairs(ChatFrameNames()) do
+        local frame = _G[name]
+        if frame and frame:IsShown() then
+            if Active(frame) then lastActivity = now end
+            lastActivity = math.max(lastActivity, NewestMessage(frame))
+        end
+    end
+    idleWanted = (now - lastActivity < IDLE_TIME) and 1 or IDLE_ALPHA
+end
+
+-- Every frame while a fade runs: the chat frames' alpha toward idleWanted
+-- (out over IDLE_FADE, back in at once).
+local function IdleFade(elapsed)
+    for _, name in ipairs(ChatFrameNames()) do
+        local frame = _G[name]
+        if frame then
+            local current = idleAlpha[frame] or frame:GetAlpha()
+            local value = idleWanted >= current and idleWanted
+                or math.max(idleWanted, current - elapsed * (1 - IDLE_ALPHA) / IDLE_FADE)
+            if value ~= current or idleAlpha[frame] == nil then
+                idleAlpha[frame] = value
+                frame:SetAlpha(value)
+            end
+        end
+    end
+end
+
+local function StartIdleFade()
+    lastActivity = GetTime()
+    local poller = CreateFrame("Frame")
+    local waited = 0
+    poller:SetScript("OnUpdate", function(_, elapsed)
+        waited = waited + elapsed
+        if waited >= IDLE_POLL then
+            waited = 0
+            ns.safecall(IdleCheck)
+        end
+        ns.safecall(IdleFade, elapsed)
+    end)
+end
+
+---------------------------------------------------------------------------
 -- Hover reveal
 ---------------------------------------------------------------------------
 -- A Blizzard-faded frame's contents: its regions and direct child frames.
@@ -354,4 +434,5 @@ function M:OnEnable()
     ns:On("DISPLAY_SIZE_CHANGED", function() reveal:Refresh() end)
 
     reveal:Start()
+    StartIdleFade()
 end

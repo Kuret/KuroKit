@@ -128,6 +128,69 @@ function ns.OutlineText(fs)
 end
 
 ---------------------------------------------------------------------------
+-- A Blizzard region out of sight for good: alpha 0, put back to 0 whenever
+-- Blizzard sets it again (never Hide: Blizzard's code shows and hides it).
+---------------------------------------------------------------------------
+local concealed = setmetatable({}, { __mode = "k" })
+function ns.Conceal(region)
+    if not region or concealed[region] or not region.SetAlpha then return end
+    concealed[region] = true
+    region:SetAlpha(0)
+    hooksecurefunc(region, "SetAlpha", function(self, alpha)
+        if alpha ~= 0 then self:SetAlpha(0) end
+    end)
+end
+
+---------------------------------------------------------------------------
+-- Forever's rounded plate (as around the nameplates and cast bars), built
+-- from stacked textures: a rounded rectangle of corner radius r is r + 1
+-- rectangles, each one pixel narrower and taller than the last.
+--   local shape = ns.RoundShape(frame, sublevel, color, radius)  -- color nil: white (for gradients)
+--   ns.AnchorShape(shape, region, inset, px)   -- `inset` px inside region (negative: outside), both corners
+--   ns.ShadeShape(shape, top, bottom)          -- vertical gradient, {r, g, b}
+-- The plate: outline (radius 3), bronze line (2), dark rim (1), 1 px each.
+---------------------------------------------------------------------------
+ns.PLATE_OUTLINE = { 0, 0, 0, 0.9 }
+ns.PLATE_RIM = { 0.06, 0.06, 0.06, 0.95 }
+ns.PLATE_BRONZE_TOP = { 1, 0.88, 0.74 }
+ns.PLATE_BRONZE_BOTTOM = { 0.6, 0.45, 0.28 }
+
+function ns.RoundShape(frame, sublevel, color, radius)
+    local shape = { radius = radius }
+    for _ = 0, radius do
+        local tex = frame:CreateTexture(nil, "BACKGROUND", nil, sublevel)
+        if color then
+            tex:SetColorTexture(color[1], color[2], color[3], color[4] or 1)
+        else
+            tex:SetColorTexture(1, 1, 1, 1)
+        end
+        shape[#shape + 1] = tex
+    end
+    return shape
+end
+
+function ns.AnchorShape(shape, region, inset, px)
+    local r = shape.radius
+    for k = 0, r do
+        local tex = shape[k + 1]
+        local x, y = (inset + r - k) * px, (inset + k) * px
+        tex:ClearAllPoints()
+        tex:SetPoint("TOPLEFT", region, "TOPLEFT", x, -y)
+        tex:SetPoint("BOTTOMRIGHT", region, "BOTTOMRIGHT", -x, y)
+    end
+end
+
+function ns.ShadeShape(shape, top, bottom)
+    local topColor = CreateColor(top[1], top[2], top[3], 1)
+    local bottomColor = CreateColor(bottom[1], bottom[2], bottom[3], 1)
+    for _, tex in ipairs(shape) do tex:SetGradient("VERTICAL", bottomColor, topColor) end
+end
+
+function ns.ShowShape(shape, shown)
+    for _, tex in ipairs(shape) do tex:SetShown(shown) end
+end
+
+---------------------------------------------------------------------------
 -- Minimap button plate: Forever draws the calendar button as one atlas, a
 -- bronze plate with the calendar glyph on it. A plate for another button is
 -- that atlas with a dark fill over the glyph, drawn at the bottom of

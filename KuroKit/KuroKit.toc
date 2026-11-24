@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: KuroKit
 ## Notes: Personal all-in-one addon: only the features actually used, nothing else.
-## Version: 0.6.1
+## Version: 0.7.0
 ## X-License: MIT
 ## SavedVariables: KuroKitDB
 ## Category: Interface Enhancements
@@ -39,3 +39,8 @@ Modules\UnitFrames.lua
 Modules\CastBars.lua
 Modules\UnitFrameSkin.lua
 Modules\FrameFade.lua
+Modules\ActionBars.lua
+Modules\Auras.lua
+Modules\RaidFrames.lua
+Modules\LowHealth.lua
+Modules\ArcHUD.lua

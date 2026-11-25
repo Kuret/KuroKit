@@ -123,6 +123,22 @@ def suspicious_read(name):
     return len(name) <= 2 or name[0].islower()
 
 
+LOCAL_DECL = re.compile(r"\blocal\s+(?:function\s+)?([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)")
+
+
+def declared_locals(source):
+    """Names the file declares as locals somewhere, with their lines: a global
+    read of one elsewhere is a local used before (or outside) its scope.
+    (`local X = X` caching reads the global on its own line: not flagged.)"""
+    names = {}
+    for lineno, line in enumerate(source.splitlines(), 1):
+        code = line.split("--", 1)[0]
+        for m in LOCAL_DECL.finditer(code):
+            for name in m.group(1).split(","):
+                names.setdefault(name.strip(), set()).add(lineno)
+    return names
+
+
 def main():
     lua = lua51.LuaRuntime(encoding=None)  # raw bytes: bytecode is binary
     compile_chunk = lua.eval("""function(src, name)
@@ -153,7 +169,12 @@ def main():
             problems.append(f"syntax: {err.decode('utf-8', 'replace')}")
             continue
         raw = bytes(dumped)
+        local_names = declared_locals(path.read_text(encoding="utf-8", errors="replace"))
         for op, name, line in Lua51Dump(raw).globals():
+            if op == GETGLOBAL and name in local_names and line not in local_names[name]:
+                problems.append(f"{rel}:{line}: reads global '{name}', a local declared elsewhere in this file "
+                                f"(used before its declaration?)")
+                continue
             if op == SETGLOBAL and not ALLOWED_WRITES.match(name):
                 problems.append(f"{rel}:{line}: writes global '{name}' (missing local?)")
             elif op == GETGLOBAL and suspicious_read(name):

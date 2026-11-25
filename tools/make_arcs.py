@@ -15,6 +15,20 @@ its outline, bronze line and dark rim one with the arcs'; the side fills end
 in the socket's hole (cut out: the portrait over them is see-through), so
 full meets the portrait's edge.
 
+Trims: thin rings along the player arc (the five-second rule / tick and pet
+health inside the power ring), each on its own 128 x 512 canvas covering exactly its height from its
+lower tip to just below the socket (so the HUD's status bar maps 0..1 straight
+onto it; the HUD computes the same placement: ArcHUD.lua TRIMS).
+
+ArcPipBack / ArcPipFill (32 x 32): a combo point socket (outline, bronze
+line, dark well) and its gem (white, shaded, for tinting).
+
+ArcMiniBack / ArcMiniFill (64 x 256): a short arc beside your character, ( shaped,
+in the arcs' materials (the shield draining); the fill cut to its own rows
+and stretched to the canvas, so a status bar over just those rows maps
+values straight onto it. ArcGlow: a soft ring round the portrait socket
+(shown while you have a shield).
+
 Portrait rings: a round frame (outline, bronze / gold / silver line, dark
 rim) on a 128 x 128 canvas, its hole for a round portrait (ArcRing,
 ArcRingElite, ArcRingRare).
@@ -194,6 +208,116 @@ def fill(size, point, ring, half, center, top=None, hole=None):
     return grain(img, GRAIN_FILL, 2)
 
 
+ARC_R = 373                          # the socket's centre radius as the HUD has it
+TRIM_CLEAR = SOCKET_R + OUTLINE_W + 2  # trims end where they'd meet this circle round the socket
+TRIM_W, TRIM_H, TRIM_MARGIN = 128, 512, 2
+TRIMS = {
+    "ArcTrimTick": (329, 335),
+    "ArcTrimPet": (319, 325),
+}
+
+
+def trim_top(r_in, r_out):
+    """The trim's top end (angle, up positive): clear of the socket."""
+    best = 0
+    for r in (r_in, r_out):
+        c = (r * r + ARC_R * ARC_R - TRIM_CLEAR ** 2) / (2 * r * ARC_R)
+        if c < 1:
+            best = max(best, math.acos(c))
+    return SOCKET_ANGLE - best
+
+
+def trim(r_in, r_out):
+    top = trim_top(r_in, r_out)
+    y_top = SIDE_CY - r_out * math.sin(top)
+    y_bottom = SIDE_CY + r_out * math.sin(HALF_ANGLE)
+    k = TRIM_H / (y_bottom - y_top)
+    x_min = SIDE_CX - r_out - TRIM_MARGIN
+    cx, cy = (SIDE_CX - x_min) * k, (SIDE_CY - y_top) * k
+
+    def point(r, a):
+        return (cx - r * math.cos(a)) * SS, (cy - r * math.sin(a)) * SS
+    return fill((TRIM_W, TRIM_H), point, (r_in * k, r_out * k), HALF_ANGLE, (cx, cy), top=top)
+
+
+# The mini arc beside your character (ArcHUD.lua T.MINI_*: the same numbers).
+MINI_W, MINI_H = 64, 256
+MINI_RING, MINI_HALF = (214, 226), math.radians(24)
+MINI_CX, MINI_CY = 236, 128          # its circle's centre: the outer edge's middle 10 px from the left
+
+
+def mini_point(r, a):
+    return (MINI_CX - r * math.cos(a)) * SS, (MINI_CY - r * math.sin(a)) * SS
+
+
+def mini_rows():
+    reach = MINI_RING[1] * math.sin(MINI_HALF)
+    return math.floor(MINI_CY - reach), math.ceil(MINI_CY + reach)
+
+
+def mini_fill():
+    size = (MINI_W, MINI_H)
+    full = fill(size, mini_point, MINI_RING, MINI_HALF, (MINI_CX, MINI_CY))
+    top, bottom = mini_rows()
+    return full.crop((0, top, MINI_W, bottom)).resize(size, Image.LANCZOS)
+
+
+GLOW_CANVAS, GLOW_R, GLOW_SIGMA = 128, 46, 3.5   # a soft ring (radius, softness px): its outer glow fades out well inside the canvas
+
+
+PIP_CANVAS, PIP_GEM = 32, 8.5   # combo point: canvas, gem radius (px)
+
+
+def disc_mask(size, r):
+    c = size / 2 * SS
+    m = Image.new("L", (size * SS, size * SS), 0)
+    ImageDraw.Draw(m).ellipse((c - r * SS, c - r * SS, c + r * SS, c + r * SS), fill=255)
+    return m.resize((size, size), Image.LANCZOS)
+
+
+def pip_back():
+    size = (PIP_CANVAS, PIP_CANVAS)
+    img = Image.new("RGBA", size, (0, 0, 0, 0))
+    img.alpha_composite(solid(size, OUTLINE, disc_mask(PIP_CANVAS, PIP_GEM + 6.5)))
+    img.alpha_composite(gradient(size, BRONZE_TOP, BRONZE_BOTTOM, disc_mask(PIP_CANVAS, PIP_GEM + 4)))
+    img.alpha_composite(grain(solid(size, RIM, disc_mask(PIP_CANVAS, PIP_GEM + 1.5)), GRAIN_TRACK, 1))
+    return img
+
+
+def pip_fill():
+    """A round gem: brighter towards its upper left, a small highlight."""
+    size = (PIP_CANVAS, PIP_CANVAS)
+    shape = disc_mask(PIP_CANVAS, PIP_GEM).load()
+    img = Image.new("RGBA", size, (0, 0, 0, 0))
+    px = img.load()
+    c = PIP_CANVAS / 2
+    for y in range(PIP_CANVAS):
+        for x in range(PIP_CANVAS):
+            a = shape[x, y]
+            if not a:
+                continue
+            dx, dy = (x + 0.5 - c) / PIP_GEM, (y + 0.5 - c) / PIP_GEM
+            d = min(1, math.hypot(dx, dy))
+            v = 0.62 + 0.38 * (1 - d * d)                          # rounder in the middle
+            v += 0.35 * math.exp(-((dx + 0.35) ** 2 + (dy + 0.4) ** 2) / 0.06)  # highlight
+            v = round(255 * min(1, v))
+            px[x, y] = (v, v, v, a)
+    return img
+
+
+def glow():
+    size = (GLOW_CANVAS, GLOW_CANVAS)
+    img = Image.new("RGBA", size, (255, 255, 255, 0))
+    px = img.load()
+    c = GLOW_CANVAS / 2
+    for y in range(GLOW_CANVAS):
+        for x in range(GLOW_CANVAS):
+            d = math.hypot(x + 0.5 - c, y + 0.5 - c) - GLOW_R
+            a = math.exp(-(d / GLOW_SIGMA) ** 2 / 2) if d < 0 else math.exp(-(d / (GLOW_SIGMA * 1.6)) ** 2 / 2)
+            px[x, y] = (255, 255, 255, round(255 * a))
+    return img
+
+
 RING_CANVAS, RING_HOLE = 128, 52  # portrait ring: canvas, hole radius (px)
 RING_METALS = {
     "ArcRing": (BRONZE_TOP, BRONZE_BOTTOM),
@@ -241,9 +365,23 @@ def main():
     for name, img in images.items():
         save(img, name + "Left")
         save(img.transpose(Image.FLIP_LEFT_RIGHT), name + "Right")
+    for name, (r_in, r_out) in TRIMS.items():
+        save(trim(r_in, r_out), name)
+    save(back((MINI_W, MINI_H), mini_point, [MINI_RING], MINI_HALF), "ArcMiniBack")
+    save(mini_fill(), "ArcMiniFill")
+    save(glow(), "ArcGlow")
+    save(pip_back(), "ArcPipBack")
+    save(pip_fill(), "ArcPipFill")
     cast = (CAST_W, CAST_H)
     save(back(cast, cast_point, [CAST], CAST_HALF_ANGLE), "ArcCastBack")
-    save(fill(cast, cast_point, CAST, CAST_HALF_ANGLE, (CAST_CX, CAST_CY)), "ArcCast")
+    cast_fill = fill(cast, cast_point, CAST, CAST_HALF_ANGLE, (CAST_CX, CAST_CY))
+    save(cast_fill, "ArcCast")
+    # The fill cut to its own columns, stretched to the canvas: a status bar
+    # over just those columns fills from the arc's first pixel to its last
+    # (ArcHUD.lua CastColumns: the same numbers).
+    reach = CAST[1] * math.sin(CAST_HALF_ANGLE)
+    left, right = math.floor(CAST_CX - reach), math.ceil(CAST_CX + reach)
+    save(cast_fill.crop((left, 0, right, CAST_H)).resize(cast, Image.LANCZOS), "ArcCastFill")
     for name, (top, bottom) in RING_METALS.items():
         save(ring(top, bottom), name)
 

@@ -29,14 +29,17 @@
 -- five-second rule (mana users: drains over the 5 s after you spend mana,
 -- then fills to each 2 s mana tick) or the energy tick (fills to each 2 s
 -- tick), faded out at full power; your pet's health (Hunters, Warlocks).
--- Priests: your absorb shield as a short arc beside your character (full
--- when it goes up, draining as it soaks damage) and a blue glow round your
--- portrait while you have one, a red ring bursting round your character when
--- it breaks or runs out; Weakened Soul as a red countdown sweep with its
--- seconds over your portrait, a blue ring round your character and its icon
--- pulsing above you when it ends (your shield's own cooldown pulse held back
--- while it lasts: the shield can't go up anyway) (from the aura, or in combat, where the HUD
--- can't see it, from your own shield landing on you: your clock). Ticks are timed from when your power
+-- Shields (any class: any absorb on you): a short arc beside your character
+-- (full when it goes up, draining as it soaks damage; sized from your own
+-- shield casts, T.SHIELD_CASTS), a blue glow round your portrait while you
+-- have one, a red ring bursting round your character when it breaks or runs
+-- out. Lockouts (T.LOCKOUTS: Weakened Soul, Forbearance): a red countdown
+-- sweep with its seconds over your portrait, a blue ring round your
+-- character and its icon pulsing above you when it ends (the blocked
+-- spells' own cooldown pulses held back meanwhile); from the aura, or in
+-- combat, where the HUD can't see it, from your own cast: your clock. Your
+-- pet's arc pulses red while it's low; your target's interrupted casts burst
+-- a ring round its portrait. Ticks are timed from when your power
 -- changes without a cast of yours spending it (values stay secret; only the
 -- events count). The Cooldown Manager rails move out of their way.
 -- Target of target beside your target's portrait (inward): its name and a
@@ -162,8 +165,6 @@ local SOUL_SWEEP_ALPHA, SOUL_FONT_SIZE = 0.6, 15
 local TRIM_CLASSES = {   -- which trims a class gets (tick: every class but these)
     pet = { HUNTER = true, WARLOCK = true },
     mana = { DRUID = true },
-    shield = { PRIEST = true },
-    soul = { PRIEST = true },
 }
 
 local T = {                    -- (one table: the main chunk is near Lua's 200-local limit)
@@ -185,8 +186,30 @@ local T = {                    -- (one table: the main chunk is near Lua's 200-l
     READY_COLOR = { 0.3, 0.62, 1 },
     BURST_TIME = 0.55, BURST_PULSES = 2, BURST_SCALE = 2.4, BURST_SIZE = 112, BURST_Y = 0,
     SOUL_COLOR = { 1, 0.3, 0.22 },
-    SOUL_SPELL = 6788,         -- Weakened Soul (found by name: every rank)
-    SHIELD_SPELL = 17,         -- Power Word: Shield (by name: every rank)
+    -- Your pet low: its arc pulsing red below this share of its health (the
+    -- share may be secret: a clipping window gates it, see NewGate).
+    PET_LOW = 0.3, PET_LOW_COLOR = { 1, 0.15, 0.1 }, PET_LOW_PULSE = 0.45,
+    -- Your target's cast interrupted: a ring bursting round its portrait.
+    KICK_COLOR = { 1, 0.9, 0.55 }, KICK_SIZE = 79, KICK_SCALE = 2.2,
+    -- Your casts that put an absorb shield on you (rank 1's ID; found by
+    -- name: every rank; your pet's casts count too): they set the shield
+    -- arc's full size. Any other absorb shows against your max health.
+    SHIELD_CASTS = {
+        PRIEST = { 17 },                     -- Power Word: Shield
+        MAGE = { 11426, 1463, 6143, 543 },   -- Ice Barrier, Mana Shield, Frost Ward, Fire Ward
+        WARLOCK = { 6229, 7812 },            -- Shadow Ward, Sacrifice (the Voidwalker's)
+    },
+    -- Lockouts: a debuff on you after some of your casts, until which those
+    -- can't go on you again. Countdown on your portrait, a blue ring and its
+    -- icon when it ends; the blocked spells' cooldown pulses held back
+    -- meanwhile. In combat (the aura hidden) timed from your cast: `absorb`
+    -- once the shield lands on you (an absorb change), `self` ones only when
+    -- cast on yourself, the others at once.
+    LOCKOUTS = {
+        PRIEST = { spell = 6788, duration = 15, triggers = { 17 }, absorb = true }, -- Weakened Soul
+        PALADIN = { spell = 25771, duration = 60, triggers = { 642, 498, 1022 },    -- Forbearance: Divine Shield,
+            self = { [1022] = true } },                                             -- Protection, Blessing of Protection
+    },
     -- The shield's mini arc beside your character (tools/make_arcs.py MINI_*):
     -- canvas, its circle's centre, outer radius, half angle; placed from the
     -- HUD's centre.
@@ -202,7 +225,6 @@ local T = {                    -- (one table: the main chunk is near Lua's 200-l
     -- ...and its icon pulsing big just above your character (one after
     -- another when several come back at once): pops in, holds, fades out.
     PULSE_SIZE = 46, PULSE_Y = 92, PULSE_IN = 0.12, PULSE_HOLD = 0.5, PULSE_OUT = 0.45, PULSE_GAP = 0.25,
-    SOUL_DURATION = 15,        -- Weakened Soul's seconds (until read from the aura out of combat)
     SHIELD_CAPTURE = 0.5,      -- seconds after your shield cast that absorb changes set its size
     -- Target of target beside the target's portrait (inward).
     TOT_W = 90, TOT_BAR_H = 4, TOT_FONT_SIZE = 11, TOT_GAP = 6,
@@ -247,7 +269,7 @@ local hud
 -- (defined further down)
 local BuildTrims, BuildToT, UpdateTrims, UpdateToT, UpdatePet, UpdateShieldTrim, UpdateSoul
 local UpdateFormMana, UpdateCombo
-local OnSpent, OnPowerChanged, UpdateTickShown
+local OnSpent, OnSent, OnPowerChanged, UpdateTickShown
 local sides = {}        -- .player, .target: { anchor, frame, health, power, healthText, powerText, portrait,
                         --   ring, name, level, faction, id, alpha, wanted }
 local cast              -- { frame, bar, latency, name, timer, alpha, wanted, channel }
@@ -893,6 +915,7 @@ local function ShowInterrupted(item, reason, guid, spellID)
     if item.latency then item.latency:SetValue(0) end
     item.wanted = 1
     item.holdUntil = GetTime() + INTERRUPT_HOLD
+    if item == tcast and reason == (INTERRUPTED or "Interrupted") and M.KickBurst then M.KickBurst() end
 end
 
 local function ClearInterrupted(item)
@@ -1088,6 +1111,9 @@ end
 ---------------------------------------------------------------------------
 do -- (a block: its locals don't count toward the main chunk's limit)
 local trims = {}   -- [key] = { frame, bar, track } for this class's trims
+local lock         -- this class's lockout (T.LOCKOUTS), if any
+-- (helpers in one table: the main chunk is at Lua's 200-local limit)
+local X = { nameSets = {} } -- .lastSent: your last UNIT_SPELLCAST_SENT { spellID, target }
 local BuildCombo   -- (defined with the combo points below)
 local fullCurve       -- power percent -> alpha: 1 below full, 0 at full
 
@@ -1282,9 +1308,9 @@ local function NewSoul()
     function t.Ready()
         if GetTime() - t.burstAt < 2 then return end
         t.burstAt = GetTime()
-        PlayBurst(t.burst) -- (blue round your character: you can shield again)
-        -- and Weakened Soul's icon pulsing above your character, blue
-        local ok, icon = pcall(C_Spell.GetSpellTexture, T.SOUL_SPELL)
+        PlayBurst(t.burst) -- (blue round your character: it can go on you again)
+        -- and the lockout's icon pulsing above your character, blue
+        local ok, icon = pcall(C_Spell.GetSpellTexture, lock.spell)
         if ok and icon then M.QueuePulse(icon, T.READY_COLOR) end
     end
     cd:SetScript("OnCooldownDone", function()
@@ -1301,13 +1327,15 @@ function BuildTrims()
         if key == "tick" then wanted = not T.NO_TICK[class] else wanted = TRIM_CLASSES[key][class] end
         if wanted then NewTrim(key, spec) end
     end
-    if TRIM_CLASSES.shield[class] then NewShield() end
+    NewShield() -- (every class: any absorb on you)
     BuildCombo()
     if trims.mana then
         local c = PowerBarColor and PowerBarColor.MANA
         if c then trims.mana.bar:SetStatusBarColor(c.r, c.g, c.b) end
     end
-    if TRIM_CLASSES.soul[class] then NewSoul() end
+    if trims.pet then X.BuildPetLow() end
+    lock = T.LOCKOUTS[class]
+    if lock then NewSoul() end
     if C_CurveUtil and C_CurveUtil.CreateCurve then
         fullCurve = C_CurveUtil.CreateCurve()
         if fullCurve.SetType and Enum.LuaCurveType then fullCurve:SetType(Enum.LuaCurveType.Step) end
@@ -1355,31 +1383,68 @@ end
 
 local shieldMax           -- your shield's size when it went up (may be secret)
 local captureUntil = 0    -- a shield of yours just went up: absorb changes until then set its size
-local shieldSpell = { spell = T.SHIELD_SPELL }
--- Weakened Soul by your own clock (combat hides the aura from the HUD): your
--- shield cast followed by an absorb change on you means it landed on you, and
--- Weakened Soul with it.
-local soulCastAt          -- your shield cast, waiting for an absorb change on you
-local soulStart           -- Weakened Soul on you since (your clock)
-local soulDuration = T.SOUL_DURATION
+-- The lockout by your own clock (combat hides the aura from the HUD): see
+-- T.LOCKOUTS. (`soul`: named after the first, Weakened Soul.)
+local soulCastAt          -- your trigger cast, waiting for an absorb change on you
+local soulStart           -- the lockout on you since (your clock)
+local soulDuration        -- its seconds (T.LOCKOUTS; read from the aura out of combat)
+
+-- name -> rank 1's ID for a list of rank 1 IDs (names: every rank).
+function X.NameSet(ids)
+    if not ids then return nil end
+    if X.nameSets[ids] then return X.nameSets[ids] end
+    local set = {}
+    for _, id in ipairs(ids) do
+        local ok, name = pcall(C_Spell.GetSpellName, id)
+        if ok and type(name) == "string" and not Secret(name) then set[name] = id end
+    end
+    X.nameSets[ids] = set
+    return set
+end
+
+function X.SpellNameOf(spellID)
+    if type(spellID) ~= "number" or Secret(spellID) then return nil end
+    local ok, name = pcall(C_Spell.GetSpellName, spellID)
+    if ok and type(name) == "string" and not Secret(name) then return name end
+end
+
+-- Your last cast of `spellID` went to yourself (its target readable: none,
+-- or your name).
+function X.SentToSelf(spellID)
+    local sent = X.lastSent
+    if not (sent and sent.spellID == spellID) then return false end
+    local target = sent.target
+    if target == nil or Secret(target) then return target == nil end
+    return target == "" or target == UnitName("player")
+end
+
+function OnSent(target, spellID)
+    if type(spellID) ~= "number" or Secret(spellID) then return end
+    X.lastSent = { spellID = spellID, target = target }
+end
 local lastAbsorbChange = -100
 
-function OnSpent(spellID)
+-- `fromPet`: your pet's cast (only for shields: the Voidwalker's Sacrifice).
+function OnSpent(spellID, fromPet)
     local now = GetTime()
-    -- Your Power Word: Shield (any rank, by name): its size comes next.
-    if type(spellID) == "number" and not Secret(spellID) and trims.shield then
-        local ok, name = pcall(C_Spell.GetSpellName, spellID)
-        if shieldSpell.name == nil then
-            local okShield, shieldName = pcall(C_Spell.GetSpellName, shieldSpell.spell)
-            shieldSpell.name = (okShield and type(shieldName) == "string") and shieldName or false
-        end
-        if ok and type(name) == "string" and not Secret(name) and name == shieldSpell.name then
-            captureUntil = now + T.SHIELD_CAPTURE
+    local name = X.SpellNameOf(spellID)
+    local _, class = UnitClass("player")
+    -- A shield of yours (any rank, by name): its size comes next.
+    if name and trims.shield and X.NameSet(T.SHIELD_CASTS[class]) and X.NameSet(T.SHIELD_CASTS[class])[name] then
+        captureUntil = now + T.SHIELD_CAPTURE
+        UpdateShieldTrim()
+    end
+    -- A lockout's trigger.
+    local trigger = name and not fromPet and lock and X.NameSet(lock.triggers)[name]
+    if trigger then
+        if lock.absorb then
             -- (the absorb change may come first)
             if now - lastAbsorbChange <= T.SHIELD_CAPTURE then soulStart = now else soulCastAt = now end
-            UpdateShieldTrim()
+        elseif not (lock.self and lock.self[trigger]) or X.SentToSelf(spellID) then
+            soulStart = now
         end
     end
+    if fromPet then return end
     if Costs(spellID, Enum.PowerType.Mana) then
         fsrStart, lastSpend = now, now
     elseif Costs(spellID, Enum.PowerType.Energy) then
@@ -1441,13 +1506,41 @@ local function UpdateTick()
 end
 
 -- Pet, shield, Weakened Soul ------------------------------------------------
+-- Your pet low: a red copy of its arc pulsing in a clipping window that is
+-- the empty part of a bar over PET_LOW..(PET_LOW + 0.01) whose value is the
+-- pet's health share: above that it's full (window shut), below it empty
+-- (window open). The share may be secret: only handed to the bar.
+function X.BuildPetLow()
+    local t = trims.pet
+    local gate = NewGate(t.frame, t.bar:GetFrameLevel() + 2)
+    gate.bar:SetAllPoints(t.frame)
+    gate.bar:SetMinMaxValues(T.PET_LOW, T.PET_LOW + 0.01)
+    gate.bar:SetValue(1)
+    local warn = gate.clip:CreateTexture(nil, "OVERLAY")
+    warn:SetAllPoints(t.frame)
+    warn:SetTexture(MEDIA .. "ArcTrimPet")
+    warn:SetBlendMode("ADD")
+    warn:SetVertexColor(T.PET_LOW_COLOR[1], T.PET_LOW_COLOR[2], T.PET_LOW_COLOR[3])
+    local group = warn:CreateAnimationGroup()
+    group:SetLooping("BOUNCE")
+    local pulse = group:CreateAnimation("Alpha")
+    pulse:SetFromAlpha(1)
+    pulse:SetToAlpha(0.25)
+    pulse:SetDuration(T.PET_LOW_PULSE)
+    group:Play()
+    t.low = gate
+end
+
 function UpdatePet()
     local t = trims.pet
     if not t then return end
     if not UnitExists("pet") then t.frame:Hide() return end
     t.frame:Show()
     local ok, value = pcall(UnitHealthPercent, "pet", true)
-    if ok and type(value) ~= "nil" then SetBarValue(t.bar, value) end
+    if ok and type(value) ~= "nil" then
+        SetBarValue(t.bar, value)
+        if t.low then pcall(t.low.bar.SetValue, t.low.bar, value) end
+    end
     local colored = false
     if healthCurve then
         local okColor, color = pcall(UnitHealthPercent, "pet", true, healthCurve)
@@ -1496,7 +1589,7 @@ end
 -- Weakened Soul: found by name (every rank), else by ID. Lookups return
 -- nothing for an aura the client keeps secret; a shown one then runs on
 -- while the client still has a duration for its instance.
-local soul = { spell = T.SOUL_SPELL, filter = "HARMFUL" }
+local soul = { filter = "HARMFUL" } -- (its spell: the class's lockout, set when first needed)
 
 local function SpellName(t)
     if t.name == nil then
@@ -1553,6 +1646,7 @@ end
 -- while the client still has a duration for it (refreshed: re-read).
 function UpdateSoul()
     if not trims.soul then return end
+    soul.spell = soul.spell or lock.spell
     local aura = FindAura(soul)
     local id = aura and aura.auraInstanceID
     if id ~= nil and not Secret(id) and ShowSoul(id) then
@@ -1568,19 +1662,22 @@ function UpdateSoul()
 end
 
 -- Weakened Soul by your clock, while the aura itself isn't shown.
--- While Weakened Soul is on you, your shield can't go up: its cooldown
--- pulse (the Cooldown Manager's) is held back. The shield's icon, compared
--- by texture (readable; anything else: not held back).
+-- While the lockout is on you, its triggers can't go on you: their cooldown
+-- pulses (the Cooldown Manager's) are held back. Their icons, compared by
+-- texture (readable; anything else: not held back).
 function M.LockedOut(texture)
-    if not (trims.soul and (soul.id or soulStart)) then return false end
-    local ok, shieldIcon = pcall(C_Spell.GetSpellTexture, T.SHIELD_SPELL)
-    if not ok or shieldIcon == nil or Secret(texture) or Secret(shieldIcon) then return false end
-    return texture == shieldIcon
+    if not (trims.soul and (soul.id or soulStart)) or Secret(texture) then return false end
+    for _, id in ipairs(lock.triggers) do
+        local ok, icon = pcall(C_Spell.GetSpellTexture, id)
+        if ok and icon ~= nil and not Secret(icon) and icon == texture then return true end
+    end
+    return false
 end
 
 local function UpdateSoulClock()
     local t = trims.soul
     if not t then return end
+    soulDuration = soulDuration or lock.duration
     if t.finished then -- (its sweep ended: Weakened Soul is over)
         t.finished = false
         soul.id, soulStart, soulCastAt, t.clockStart = nil, nil, nil, nil
@@ -1590,6 +1687,29 @@ local function UpdateSoulClock()
         t.clockStart = soulStart
         t.cooldown:SetCooldown(soulStart, soulDuration)
     end
+end
+
+-- Your target's cast interrupted: a ring bursting round its portrait
+-- (built when first needed).
+function M.KickBurst()
+    local s = sides.target
+    if not X.kick then
+        local ring = CreateFrame("Frame", nil, s.id)
+        ring:SetSize(T.KICK_SIZE, T.KICK_SIZE)
+        ring:SetPoint("CENTER", s.id, "CENTER")
+        ring:SetFrameLevel(s.id:GetFrameLevel() + 5)
+        local tex = ring:CreateTexture(nil, "OVERLAY")
+        tex:SetAllPoints()
+        tex:SetTexture(MEDIA .. "ArcGlow")
+        tex:SetBlendMode("ADD")
+        tex:SetVertexColor(T.KICK_COLOR[1], T.KICK_COLOR[2], T.KICK_COLOR[3])
+        ring:SetAlpha(0)
+        local group = s.frame:CreateAnimationGroup()
+        for i = 1, T.BURST_PULSES do AddPulse(group, ring, i, 1, T.KICK_SCALE) end
+        X.kick = group
+    end
+    X.kick:Stop()
+    X.kick:Play()
 end
 
 function UpdateTrims()
@@ -1707,6 +1827,8 @@ function M:OnSlash(args)
         return tostring(v)
     end
     ns:Print("auras secret now: " .. Show(C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret()))
+    soul.spell = soul.spell or (lock and lock.spell)
+    if not soul.spell then return end
     local secrecy = C_Secrets and C_Secrets.GetSpellAuraSecrecy and C_Secrets.GetSpellAuraSecrecy(soul.spell)
     local aura = FindAura(soul)
     ns:Print(("%d %s: secrecy %s, found %s, instance %s, tracked %s"):format(soul.spell, tostring(SpellName(soul)),
@@ -2126,7 +2248,10 @@ function M:OnEnable()
     ns:On("UNIT_AURA", function(_, unit) if unit == "player" then UpdateSoul() end end)
     ns:On("UNIT_ABSORB_AMOUNT_CHANGED", function(_, unit) if unit == "player" then UpdateShieldTrim(true) end end)
     ns:On("UNIT_PET", function(_, unit) if unit == "player" then UpdatePet() end end)
-    ns:On("UNIT_SPELLCAST_SUCCEEDED", function(_, unit, _, spellID) if unit == "player" then OnSpent(spellID) end end)
+    ns:On("UNIT_SPELLCAST_SUCCEEDED", function(_, unit, _, spellID)
+        if unit == "player" then OnSpent(spellID) elseif unit == "pet" then OnSpent(spellID, true) end
+    end)
+    ns:On("UNIT_SPELLCAST_SENT", function(_, unit, target, _, spellID) if unit == "player" then OnSent(target, spellID) end end)
     ns:On("UNIT_POWER_FREQUENT", function(_, unit, token)
         if unit ~= "player" then return end
         OnPowerChanged(token)

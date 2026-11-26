@@ -1,7 +1,8 @@
 -- Frame fading: your player frame stays out of sight while it isn't needed.
---   * shown in combat, while you have a target, and while the mouse is over
---     the spot where it sits; faded out otherwise (and always shown in Edit
---     Mode)
+--   * shown in combat, while you have a target, while your health or mana
+--     isn't full (energy not full, rage not empty), and while the mouse is
+--     over the spot where it sits; faded out otherwise (and always shown in
+--     Edit Mode)
 --   * the Cooldown Manager follows the same rules when Edit Mode has it set
 --     to show in combat only: out of combat it also shows while you have a
 --     target or the mouse is over its spot
@@ -24,7 +25,8 @@ local _, ns = ...
 local M = ns:NewModule("FrameFade", {
     title = "Frame Fading",
     group = "Interface",
-    desc = "Your player frame fades out of combat and comes back while you have a target or hover its spot. The "
+    desc = "Your player frame fades out of combat and comes back while you have a target, your health or mana "
+        .. "isn't full, or you hover its spot. The "
         .. "Cooldown Manager, when Edit Mode shows it in combat only, also shows with a target or on hover. "
         .. "The action bars fade while you've been on the move for a few seconds out of combat.",
 })
@@ -87,7 +89,7 @@ local function SetFrameAlpha(value)
 end
 
 local function PlayerWanted()
-    return editing or InCombat() or UnitExists("target") or CursorIn(RectOf(PlayerFrame))
+    return editing or InCombat() or UnitExists("target") or ns.PlayerSettling() or CursorIn(RectOf(PlayerFrame))
 end
 
 ---------------------------------------------------------------------------

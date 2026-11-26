@@ -117,6 +117,45 @@ function ns.UnitFullName(unit)
 end
 
 ---------------------------------------------------------------------------
+-- Whether your health or power is still settling: changed within the last
+-- SETTLE seconds. Out of combat health and mana (energy, rage) only change
+-- while they refill (or rage decays), every 2 s tick, so this reads "not
+-- topped up yet" without the values themselves (health is always secret to
+-- addons on this client). After a cast of yours spends power (a power change
+-- right after it), mana doesn't refill for up to ~7 s (the five-second rule,
+-- then the next tick): SPEND_SETTLE. For "show while not topped up" (Frame
+-- Fading, the Arc HUD).
+---------------------------------------------------------------------------
+local SETTLE, SPEND_SETTLE, SPEND_WINDOW = 3, 7.5, 0.3
+local lastChange, lastPower, lastCast, lastSpend = -100, -100, -100, -100
+do
+    local watch = CreateFrame("Frame")
+    for _, event in ipairs({ "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_UPDATE", "UNIT_MAXPOWER",
+        "UNIT_SPELLCAST_SUCCEEDED" }) do
+        watch:RegisterUnitEvent(event, "player")
+    end
+    -- (the cast and its power change may come in either order)
+    watch:SetScript("OnEvent", function(_, event)
+        local now = GetTime()
+        if event == "UNIT_SPELLCAST_SUCCEEDED" then
+            lastCast = now
+            if now - lastPower <= SPEND_WINDOW then lastSpend = now end
+            return
+        end
+        lastChange = now
+        if event == "UNIT_POWER_UPDATE" then
+            lastPower = now
+            if now - lastCast <= SPEND_WINDOW then lastSpend = now end
+        end
+    end)
+end
+
+function ns.PlayerSettling()
+    local now = GetTime()
+    return now - lastChange < SETTLE or now - lastSpend < SPEND_SETTLE
+end
+
+---------------------------------------------------------------------------
 -- Text over the world (flight timer, loot feed): a thin outline on top of a
 -- solid shadow, so it reads on bright backgrounds too.
 ---------------------------------------------------------------------------

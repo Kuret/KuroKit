@@ -73,6 +73,18 @@ CAST_HALF_ANGLE = math.radians(17)
 CAST = (580, 600)
 
 
+# Swing arcs: thin arcs in the cast arc's style and curve, on their own
+# canvas with the ring in its middle (ArcHUD/Swing.lua SWING_*: the same
+# numbers).
+SWING_W, SWING_H = 512, 64
+SWING_CX, SWING_CY = 256, -551
+SWING = (592, 600)
+
+
+def swing_point(r, a):
+    return (SWING_CX + r * math.sin(a)) * SS, (SWING_CY + r * math.cos(a)) * SS
+
+
 def side_point(r, a):
     return (SIDE_CX - r * math.cos(a)) * SS, (SIDE_CY - r * math.sin(a)) * SS
 
@@ -318,6 +330,20 @@ def glow():
     return img
 
 
+def rim(size):
+    """The side arcs' frame lines (outline, bronze line and rims round the
+    rings and the socket) in white, the rings and the portrait cut out: tinted
+    over the arc (threat)."""
+    lo, hi = INNER[0], OUTER[1]
+    mid = (lo + hi) / 2
+    centre = side_point(mid, SOCKET_ANGLE)
+    m = mask(size, [sector(side_point, lo - OUTLINE_W, hi + OUTLINE_W, HALF_ANGLE + OUTLINE_W / mid, CORNER["outline"]),
+                    circle(centre, SOCKET_R + OUTLINE_W)],
+             [sector(side_point, r[0], r[1], HALF_ANGLE, CORNER["fill"]) for r in (OUTER, INNER)]
+             + [circle(centre, SOCKET_R)])
+    return solid(size, (255, 255, 255, 255), m)
+
+
 RING_CANVAS, RING_HOLE = 128, 52  # portrait ring: canvas, hole radius (px)
 RING_METALS = {
     "ArcRing": (BRONZE_TOP, BRONZE_BOTTOM),
@@ -361,6 +387,7 @@ def main():
         "ArcBack": back(side, side_point, [OUTER, INNER], HALF_ANGLE, socket=True),
         "ArcOuter": fill(side, side_point, OUTER, HALF_ANGLE, (SIDE_CX, SIDE_CY), top=FILL_TOP, hole=socket),
         "ArcInner": fill(side, side_point, INNER, HALF_ANGLE, (SIDE_CX, SIDE_CY), top=FILL_TOP, hole=socket),
+        "ArcRim": rim(side),
     }
     for name, img in images.items():
         save(img, name + "Left")
@@ -382,6 +409,12 @@ def main():
     reach = CAST[1] * math.sin(CAST_HALF_ANGLE)
     left, right = math.floor(CAST_CX - reach), math.ceil(CAST_CX + reach)
     save(cast_fill.crop((left, 0, right, CAST_H)).resize(cast, Image.LANCZOS), "ArcCastFill")
+    swing = (SWING_W, SWING_H)
+    save(back(swing, swing_point, [SWING], CAST_HALF_ANGLE), "ArcSwingBack")
+    swing_fill = fill(swing, swing_point, SWING, CAST_HALF_ANGLE, (SWING_CX, SWING_CY))
+    reach = SWING[1] * math.sin(CAST_HALF_ANGLE)
+    left, right = math.floor(SWING_CX - reach), math.ceil(SWING_CX + reach)
+    save(swing_fill.crop((left, 0, right, SWING_H)).resize(swing, Image.LANCZOS), "ArcSwingFill")
     for name, (top, bottom) in RING_METALS.items():
         save(ring(top, bottom), name)
 

@@ -36,6 +36,7 @@ local MIN_FLIGHT, MAX_FLIGHT = 10, 3600 -- recordable flight times
 local ZONE_GAP = 10         -- timer bar to the zone text area below it
 local SCALE = 1.15          -- a bit larger than the cast bar itself
 local RESUME_SLACK = 120    -- seconds past the expected landing a saved flight still resumes
+local TIME_ROOM = 48        -- the time left's room on the bar's right ("12:34"): the route text stops short of it
 local ARROW = " \194\187 "  -- " » "
 
 local bar
@@ -156,10 +157,15 @@ local function BuildBar()
     bar.spark:SetAtlas("ui-castingbar-pip")
     bar.spark:SetSize(8, 20)
 
-    bar.text = bar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    bar.text:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", 0, 6)
     bar.time = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     bar.time:SetPoint("BOTTOMRIGHT", bar, "TOPRIGHT", 0, 6)
+    -- The route: up to the time's room (cut off with "..." should even the
+    -- destination alone not fit).
+    bar.text = bar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    bar.text:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", 0, 6)
+    bar.text:SetPoint("BOTTOMRIGHT", bar, "TOPRIGHT", -TIME_ROOM, 6)
+    bar.text:SetJustifyH("LEFT")
+    bar.text:SetWordWrap(false)
     ns.OutlineText(bar.text)
     ns.OutlineText(bar.time)
     bar:Hide()
@@ -200,11 +206,28 @@ local function UpdateBar()
     end
 end
 
+-- "origin » destination" in `width`: the origin shortened ("Nethergarde Ke...")
+-- until it fits, the destination whole; a destination too long on its own
+-- alone, cut off by the font string. (Once per flight.)
+local ELLIPSIS = "\226\128\166"
+local function FitRoute(fs, from, to, width)
+    fs:SetText(from .. ARROW .. to)
+    if fs:GetUnboundedStringWidth() <= width then return end
+    local chars = {}
+    for c in from:gmatch("[%z\1-\127\194-\244][\128-\191]*") do chars[#chars + 1] = c end
+    for n = #chars - 1, 1, -1 do
+        local short = table.concat(chars, "", 1, n):gsub("%s+$", "")
+        fs:SetText(short .. ELLIPSIS .. ARROW .. to)
+        if fs:GetUnboundedStringWidth() <= width then return end
+    end
+    fs:SetText(to)
+end
+
 local function ShowBar()
     if not bar then BuildBar() end
     PlaceBar()
     shownSecond = nil
-    bar.text:SetText(flight.from .. ARROW .. flight.to)
+    FitRoute(bar.text, flight.from, flight.to, bar:GetWidth() - TIME_ROOM)
     bar.spark:SetShown(flight.duration ~= nil)
     bar:SetScript("OnUpdate", UpdateBar)
     bar:Show()

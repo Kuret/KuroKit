@@ -139,6 +139,31 @@ def declared_locals(source):
     return names
 
 
+CACHE_DECL = re.compile(r"^\s*local\s+([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*=\s*(.*)$")
+
+
+def sibling_locals(path):
+    """A multi-file module (Modules/<Name>/*.lua) shares its constants and
+    helpers through a table, each file taking local copies: a global read of
+    a name a sibling file declares as local is a copy this file forgot.
+    (Caching lines `local X = X` don't count: X is a real global.)"""
+    if path.parent.parent.name != "Modules":
+        return {}
+    names = {}
+    for sibling in path.parent.glob("*.lua"):
+        if sibling == path:
+            continue
+        for line in sibling.read_text(encoding="utf-8", errors="replace").splitlines():
+            code = line.split("--", 1)[0]
+            cache = CACHE_DECL.match(code)
+            if cache and [n.strip() for n in cache.group(1).split(",")] == [n.strip() for n in cache.group(2).split(",")]:
+                continue
+            for m in LOCAL_DECL.finditer(code):
+                for name in m.group(1).split(","):
+                    names.setdefault(name.strip(), sibling.name)
+    return names
+
+
 def main():
     lua = lua51.LuaRuntime(encoding=None)  # raw bytes: bytecode is binary
     compile_chunk = lua.eval("""function(src, name)
@@ -170,10 +195,15 @@ def main():
             continue
         raw = bytes(dumped)
         local_names = declared_locals(path.read_text(encoding="utf-8", errors="replace"))
+        shared = sibling_locals(path)
         for op, name, line in Lua51Dump(raw).globals():
             if op == GETGLOBAL and name in local_names and line not in local_names[name]:
                 problems.append(f"{rel}:{line}: reads global '{name}', a local declared elsewhere in this file "
                                 f"(used before its declaration?)")
+                continue
+            if op == GETGLOBAL and name in shared and name not in local_names:
+                problems.append(f"{rel}:{line}: reads global '{name}', a local in {shared[name]} "
+                                f"(missing its local copy from the shared table?)")
                 continue
             if op == SETGLOBAL and not ALLOWED_WRITES.match(name):
                 problems.append(f"{rel}:{line}: writes global '{name}' (missing local?)")
